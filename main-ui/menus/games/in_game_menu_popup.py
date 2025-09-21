@@ -17,6 +17,7 @@ class InGameMenuPopup:
 
     def run_in_game_menu(self):
         popup_options = []
+    
         popup_options.append(GridOrListEntry(
             primary_text="Exit Game",
             image_path=Theme.settings(),
@@ -25,6 +26,7 @@ class InGameMenuPopup:
             icon=Theme.settings(),
             value=self.exit_game
         ))
+        
 
         popup_view = ViewCreator.create_view(
             view_type=ViewType.TEXT_ONLY,
