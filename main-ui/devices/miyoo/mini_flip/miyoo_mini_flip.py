@@ -1,17 +1,22 @@
 from concurrent.futures import Future
+import ctypes
 import fcntl
+import json
+import math
 from pathlib import Path
 import struct
 import subprocess
+import sys
 import threading
 import time
 from controller.controller_inputs import ControllerInput
 from controller.key_state import KeyState
 from controller.key_watcher import KeyWatcher
 import os
-from controller.key_watcher_controller import InputResult, KeyEvent, KeyWatcherController
+from controller.key_watcher_controller_miyoo_mini import InputResult, KeyEvent, KeyWatcherControllerMiyooMini
 from devices.charge.charge_status import ChargeStatus
 from devices.miyoo.flip.miyoo_flip_poller import MiyooFlipPoller
+from devices.miyoo.mini_flip.miyoo_mini_flip_shared_memory_writer import MiyooMiniFlipSharedMemoryWriter
 from devices.miyoo.miyoo_device import MiyooDevice
 from devices.miyoo.miyoo_games_file_parser import MiyooGamesFileParser
 from devices.miyoo.system_config import SystemConfig
@@ -24,13 +29,21 @@ from utils.config_copier import ConfigCopier
 from utils.logger import PyUiLogger
 from utils.py_ui_config import PyUiConfig
 
+MAX_VOLUME = 20
+MIN_RAW_VALUE = -60
+MAX_RAW_VALUE = 30
+
+MI_AO_SETVOLUME = 0x4008690b
+MI_AO_GETVOLUME = 0xc008690c
+MI_AO_SETMUTE   = 0x4008690d
+
 class MiyooMiniFlip(MiyooDevice):
     OUTPUT_MIXER = 2
     SOUND_DISABLED = 0
 
+
     def __init__(self):
         PyUiLogger.get_logger().info("Initializing Miyoo Mini Flip")        
-        
         self.sdl_button_to_input = {
             sdl2.SDL_CONTROLLER_BUTTON_A: ControllerInput.B,
             sdl2.SDL_CONTROLLER_BUTTON_B: ControllerInput.A,
@@ -53,6 +66,7 @@ class MiyooMiniFlip(MiyooDevice):
         source = script_dir / 'mini-flip-system.json'
         ConfigCopier.ensure_config("/mnt/SDCARD/Saves/mini-flip-system.json", source)
         self.system_config = SystemConfig("/mnt/SDCARD/Saves/mini-flip-system.json")
+        self.miyoo_mini_flip_shared_memory_writer = MiyooMiniFlipSharedMemoryWriter()
         self.miyoo_games_file_parser = MiyooGamesFileParser()        
         self._set_lumination_to_config()
         self._set_contrast_to_config()
@@ -60,7 +74,6 @@ class MiyooMiniFlip(MiyooDevice):
         self._set_brightness_to_config()
         self.ensure_wpa_supplicant_conf()
         self.init_gpio()
-        threading.Thread(target=self.monitor_wifi, daemon=True).start()
         #self.hardware_poller = MiyooFlipPoller(self)
         #threading.Thread(target=self.hardware_poller.continuously_monitor, daemon=True).start()
 
@@ -72,9 +85,6 @@ class MiyooMiniFlip(MiyooDevice):
             Controller.add_button_watcher(self.volume_key_watcher.poll_keyboard)
             volume_key_polling_thread = threading.Thread(target=self.volume_key_watcher.poll_keyboard, daemon=True)
             volume_key_polling_thread.start()
-            self.power_key_watcher = KeyWatcher("/dev/input/event2")
-            power_key_polling_thread = threading.Thread(target=self.power_key_watcher.poll_keyboard, daemon=True)
-            power_key_polling_thread.start()
 
         self.unknown_axis_ranges = {}  # axis -> (min, max)
         self.unknown_axis_stats = {}   # axis -> (sum, count)
@@ -86,9 +96,14 @@ class MiyooMiniFlip(MiyooDevice):
             4: "SDL_CONTROLLER_AXIS_TRIGGERLEFT",
             5: "SDL_CONTROLLER_AXIS_TRIGGERRIGHT"
         }
+        threading.Thread(target=self.startup_init, daemon=True).start()
+        super().__init__()
+
+    def startup_init(self):
         config_volume = self.system_config.get_volume()
         self._set_volume(config_volume)
-        super().__init__()
+        if(self.is_wifi_enabled()):
+            self.start_wifi_services()
 
     def get_controller_interface(self):
         key_mappings = {}  
@@ -109,12 +124,12 @@ class MiyooMiniFlip(MiyooDevice):
         key_mappings[KeyEvent(1, 1, 0)] = [InputResult(ControllerInput.MENU, KeyState.RELEASE)]
         key_mappings[KeyEvent(1, 1, 1)] = [InputResult(ControllerInput.MENU, KeyState.PRESS)]  
 
-        key_mappings[KeyEvent(1, 14, 0)] = [InputResult(ControllerInput.L1, KeyState.RELEASE)]
-        key_mappings[KeyEvent(1, 14, 1)] = [InputResult(ControllerInput.L1, KeyState.PRESS)]  
+        key_mappings[KeyEvent(1, 15, 0)] = [InputResult(ControllerInput.L1, KeyState.RELEASE)]  
+        key_mappings[KeyEvent(1, 15, 1)] = [InputResult(ControllerInput.L1, KeyState.PRESS)]  
         key_mappings[KeyEvent(1, 20, 0)] = [InputResult(ControllerInput.L2, KeyState.RELEASE)]  
         key_mappings[KeyEvent(1, 20, 1)] = [InputResult(ControllerInput.L2, KeyState.PRESS)]  
-        key_mappings[KeyEvent(1, 15, 0)] = [InputResult(ControllerInput.R1, KeyState.RELEASE)]  
-        key_mappings[KeyEvent(1, 15, 1)] = [InputResult(ControllerInput.R1, KeyState.PRESS)]  
+        key_mappings[KeyEvent(1, 14, 0)] = [InputResult(ControllerInput.R1, KeyState.RELEASE)]
+        key_mappings[KeyEvent(1, 14, 1)] = [InputResult(ControllerInput.R1, KeyState.PRESS)]  
         key_mappings[KeyEvent(1, 18, 0)] = [InputResult(ControllerInput.R2, KeyState.RELEASE)]  
         key_mappings[KeyEvent(1, 18, 1)] = [InputResult(ControllerInput.R2, KeyState.PRESS)]  
 
@@ -128,16 +143,20 @@ class MiyooMiniFlip(MiyooDevice):
         key_mappings[KeyEvent(1, 106, 0)] = [InputResult(ControllerInput.DPAD_RIGHT, KeyState.RELEASE)]
 
         
-        return KeyWatcherController(event_path="/dev/input/event0", key_mappings=key_mappings)
-
+        return KeyWatcherControllerMiyooMini(event_path="/dev/input/event0", key_mappings=key_mappings)
 
     def init_gpio(self):
+        #self.init_sleep_gpio()
+        pass
+
+    def init_sleep_gpio(self):
         try:
-            if not os.path.exists("/sys/class/gpio150"):
+            if not os.path.exists("/sys/class/export"):
                 with open("/sys/class/gpio/export", "w") as f:
-                    f.write("150")
+                    f.write("4")
         except Exception as e:
-            PyUiLogger.get_logger().error(f"Error exportiing gpio150 {e}")
+            PyUiLogger.get_logger().error(f"Error exporting gpio 4 {e}")
+
 
     def are_headphones_plugged_in(self):
         try:
@@ -156,11 +175,11 @@ class MiyooMiniFlip(MiyooDevice):
 
     @property
     def screen_width(self):
-        return 640
+        return 750
 
     @property
     def screen_height(self):
-        return 480
+        return 560
         
     @property
     def screen_rotation(self):
@@ -178,7 +197,7 @@ class MiyooMiniFlip(MiyooDevice):
         if(self.should_scale_screen()):
             return 1080
         else:
-            return self.screen_widths
+            return self.screen_width
 
     def get_scale_factor(self):
         if(self.is_hdmi_connected()):
@@ -187,35 +206,23 @@ class MiyooMiniFlip(MiyooDevice):
             return 1
     
     def _set_lumination_to_config(self):
-        DISP_LCD_SET_BRIGHTNESS = 0x102
-        try:
-            fd = os.open("/dev/disp", os.O_RDWR)
-        except Exception as e:
-            print(f"Failed to open /dev/disp: {e}")
-            return
-
-        param = struct.pack('LLLL', 0, self.map_backlight_from_10_to_full_255(self.system_config.backlight, min_level=10), 0, 0)
-
-        try:
-            fcntl.ioctl(fd, DISP_LCD_SET_BRIGHTNESS, param)
-        except Exception as e:
-            print(f"ioctl failed: {e}")
-        finally:
-            os.close(fd)
+        # Miyoo internally has lumination but it does not work
+        #self.miyoo_mini_flip_shared_memory_writer.set_lumination(self.system_config.backlight)
+        self.miyoo_mini_flip_shared_memory_writer.set_brightness(self.system_config.backlight)
 
     def _set_contrast_to_config(self):
-#        ProcessRunner.run(["modetest", "-M", "rockchip", "-a", "-w", 
-#                                    "179:contrast:"+str(self.system_config.contrast * 5)])
+        #Doesn't seem to work?
+        #self.miyoo_mini_flip_shared_memory_writer.set_contrast(self.system_config.contrast)
         pass
     
     def _set_saturation_to_config(self):
-#        ProcessRunner.run(["modetest", "-M", "rockchip", "-a", "-w", 
-#                                    "179:saturation:"+str(self.system_config.saturation * 5)])
+        #Doesn't seem to work?
+        #self.miyoo_mini_flip_shared_memory_writer.set_saturation(self.system_config.saturation)
         pass
 
     def _set_brightness_to_config(self):
-#        ProcessRunner.run(["modetest", "-M", "rockchip", "-a", "-w", 
-#                                     "179:brightness:"+str(self.system_config.brightness * 5)])
+        #Doesn't seem to work?
+        #self.miyoo_mini_flip_shared_memory_writer.set_brightness(self.system_config.brightness)
         pass
 
     def take_snapshot(self, path):
@@ -252,10 +259,18 @@ class MiyooMiniFlip(MiyooDevice):
     @throttle.limit_refresh(5)
     def get_charge_status(self):
         try:
-            with open("/sys/class/power_supply/ac/online", "r") as f:
-                ac_online = int(f.read().strip())
-                
-            if(ac_online):
+            # Run axp_test and parse JSON
+            result = subprocess.run(
+                ["/customer/app/axp_test"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                text=True,
+                timeout=2
+            )
+            data = json.loads(result.stdout.strip())
+            charging = int(data.get("charging", 0))
+            
+            if charging == 1:
                 return ChargeStatus.CHARGING
             else:
                 return ChargeStatus.DISCONNECTED
@@ -265,14 +280,59 @@ class MiyooMiniFlip(MiyooDevice):
     @throttle.limit_refresh(15)
     def get_battery_percent(self):
         try:
-            with open("/sys/class/power_supply/battery/capacity", "r") as f:
-                return int(f.read().strip()) 
+            # Run axp_test and capture its JSON output
+            result = subprocess.run(
+                ["/customer/app/axp_test"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                text=True,
+                timeout=2
+            )
+            data = json.loads(result.stdout.strip())
+            return data.get("battery", 0)
         except Exception:
             return 0
     
+
+    def start_wifi_services(self):
+        try:
+            # Check if system already has an IP address
+            result = subprocess.run(
+                ["ip", "route", "get", "1"],
+                capture_output=True,
+                text=True
+            )
+
+            # Extract the last field (the IP) like `awk '{print $NF;exit}'`
+            parts = result.stdout.strip().split()
+            ip = parts[-1] if parts else ""
+
+            if not ip:
+                PyUiLogger.get_logger().info("Wifi is disabled - trying to enable it...")
+
+                subprocess.run(["insmod", "/mnt/SDCARD/8188fu.ko"])
+                subprocess.run(["ifconfig", "lo", "up"])
+                subprocess.run(["/customer/app/axp_test", "wifion"])
+                time.sleep(2)
+                subprocess.run(["ifconfig", "wlan0", "up"])
+                subprocess.run([
+                    "wpa_supplicant",
+                    "-B",
+                    "-D", "nl80211",
+                    "-i", "wlan0",
+                    "-c", "/appconfigs/wpa_supplicant.conf"
+                ])
+                subprocess.run(["udhcpc", "-i", "wlan0", "-s", "/etc/init.d/udhcpc.script"])
+                time.sleep(3)
+                os.system("clear")
+
+        except Exception as e:
+            PyUiLogger.get_logger().error(f"Error enabling WiFi: {e}")
+
+
     def set_wifi_power(self, value):
-        # Not implemented on A30
-        pass
+        if(0 == value):
+            ProcessRunner.run(["ifconfig", "wlan0", "down"])
 
     def get_bluetooth_scanner(self):
         return None
@@ -282,34 +342,82 @@ class MiyooMiniFlip(MiyooDevice):
         return None
 
     def get_wpa_supplicant_conf_path(self):
-        return "/config/wpa_supplicant.conf"
+        return "/appconfigs/wpa_supplicant.conf"
 
     def get_volume(self):
         return self.system_config.get_volume()
 
-    def _set_volume(self, volume):
+    def _set_volume_raw(self, value: int, add: int = 0) -> int:
         try:
-            ProcessRunner.run(["amixer","set","headphone volume",str(volume)+"%"], print=True)            
-        except Exception as e:
-            PyUiLogger.get_logger().error(f"Failed to set volume: {e}")
+            fd = os.open("/dev/mi_ao", os.O_RDWR)
+        except OSError:
+            return 0
 
-        return volume 
+        # Prepare buffers
+        buf2 = (ctypes.c_int * 2)(0, 0)
+        buf1 = (ctypes.c_uint64 * 2)(ctypes.sizeof(buf2), ctypes.cast(buf2, ctypes.c_void_p).value)
+
+        # Get previous volume
+        fcntl.ioctl(fd, MI_AO_GETVOLUME, buf1)
+        prev_value = buf2[1]
+
+        if add:
+            value = prev_value + add
+        else:
+            value += MIN_RAW_VALUE
+
+        # Clamp value
+        value = max(MIN_RAW_VALUE, min(MAX_RAW_VALUE, value))
+
+        if value == prev_value:
+            os.close(fd)
+            return prev_value
+
+        buf2[1] = value
+        fcntl.ioctl(fd, MI_AO_SETVOLUME, buf1)
+
+        # Handle mute
+        if prev_value <= MIN_RAW_VALUE < value:
+            buf2[1] = 0
+            fcntl.ioctl(fd, MI_AO_SETMUTE, buf1)
+        elif prev_value > MIN_RAW_VALUE >= value:
+            buf2[1] = 1
+            fcntl.ioctl(fd, MI_AO_SETMUTE, buf1)
+
+        os.close(fd)
+        return value
+
+
+    def _set_volume(self, volume: int) -> int:
+        #Breaks keymon somehow
+        if(False):
+            volume = max(0, min(MAX_VOLUME, volume))
+
+            volume_raw = 0
+            if volume != 0:
+                volume_raw = round(48 * math.log10(1 + volume))  # volume curve
+
+            self._set_volume_raw(volume_raw, 0)
+        return volume
 
     def fix_sleep_sound_bug(self):
         config_volume = self.system_config.get_volume()
         self._set_volume(config_volume)
 
-    def run_game(self, rom_info: RomInfo) -> subprocess.Popen:
-        def delayed_fix():
-            total_time = 2.0
-            interval = 0.1
-            elapsed = 0.0
-            config_volume = self.system_config.get_volume()
-            while elapsed < total_time:
-                time.sleep(interval)
-                elapsed += interval 
-                self._set_volume(config_volume)
 
-        # Start the thread
-        threading.Thread(target=delayed_fix, daemon=True).start()
-        return MiyooTrimCommon.run_game(self,rom_info)
+    def run_game(self, rom_info: RomInfo) -> subprocess.Popen:
+        preload_path = "/mnt/SDCARD/miyoo/app/../lib/libpadsp.so"
+        if os.path.exists(preload_path):
+            run_prefix = f"LD_PRELOAD={preload_path} "
+        else:
+            run_prefix = "LD_PRELOAD=/customer/lib/libpadsp.so "
+        return MiyooTrimCommon.run_game(self, rom_info, run_prefix=run_prefix)
+
+    def double_init_sdl_display(self):
+        return True
+            
+    def shrink_text_if_needed(self, text):
+        return text[:40]
+    
+    def supports_volume(self):
+        return False
