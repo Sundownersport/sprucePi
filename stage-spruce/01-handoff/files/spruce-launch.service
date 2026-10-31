@@ -1,0 +1,22 @@
+[Unit]
+Description=Hand off to spruce
+After=multi-user.target
+
+[Service]
+Type=idle
+# spruce powers off from a descendant of runtime.sh, which it kills on the way.
+KillMode=process
+ExecStartPre=/usr/local/sbin/mount-spruce.sh
+ExecStartPre=-/usr/local/sbin/console-blank.sh
+ExecStart=/bin/sh -lc 'exec /mnt/SDCARD/spruce/scripts/runtime.sh'
+Restart=on-failure
+RestartSec=3
+StandardInput=tty
+StandardOutput=journal
+StandardError=journal
+TTYPath=/dev/tty1
+TTYReset=yes
+TTYVHangup=yes
+
+[Install]
+WantedBy=multi-user.target

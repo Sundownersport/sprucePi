@@ -1,0 +1,8 @@
+[Plymouth Theme]
+Name=spruce
+Description=spruce boot logo
+ModuleName=script
+
+[script]
+ImageDir=/usr/share/plymouth/themes/spruce
+ScriptFile=/usr/share/plymouth/themes/spruce/spruce.script
