@@ -35,11 +35,13 @@ else
 	./libretro-fetch.sh "$core"
 	./libretro-build.sh "$core"
 	so="dist/unix/${core}_libretro.so"
+	# Some rules look for the core in the wrong build folder.
+	[ -f "$so" ] || so=$(find "libretro-$core" -name "${core}_libretro.so" -type f | head -1)
 	[ ! -f "dist/info/${core}_libretro.info" ] || cp "dist/info/${core}_libretro.info" /output/
 	[ ! -d "libretro-$core" ] || commit=$(git -C "libretro-$core" rev-parse HEAD)
 fi
 
-[ -f "$so" ] || { echo "no $so"; exit 1; }
+[ -n "$so" ] && [ -f "$so" ] || { echo "no ${core}_libretro.so"; exit 1; }
 strip -s "$so"
 cp "$so" /output/
 echo "${commit:-unknown}" > /output/commit.txt

@@ -19,7 +19,6 @@ fake08
 fbalpha2012
 fbneo
 fceumm
-ffmpeg
 flycast
 fmsx
 freechaf
