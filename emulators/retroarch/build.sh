@@ -5,7 +5,7 @@ cd RetroArch
 apply_patches /patches/common
 cp -r /recipe/common_src/* .
 
-FLAGS="-O3 -flto=auto -ffunction-sections -fdata-sections -DHAVE_SCREEN_ORIENTATION -DGEOMETRY_MENU_ROTATION -D_GNU_SOURCE"
+FLAGS="-O3 -flto=auto -ffunction-sections -fdata-sections -DHAVE_SCREEN_ORIENTATION -DGEOMETRY_MENU_ROTATION -D_GNU_SOURCE -DHAVE_FILTERS_BUILTIN"
 CFLAGS="$FLAGS" CXXFLAGS="$FLAGS" LDFLAGS="-Wl,--gc-sections -flto=auto" ./configure \
 	--disable-x11 --disable-wayland --enable-vulkan --disable-opengl --disable-qt --disable-kms \
 	--disable-pulse --disable-jack --disable-oss --disable-discord \

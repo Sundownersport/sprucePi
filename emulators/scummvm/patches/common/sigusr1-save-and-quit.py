@@ -82,9 +82,12 @@ OLD2 = '''#include "common/scummsys.h"
 
 #if !defined(DISABLE_DEFAULT_EVENTMANAGER)'''
 
-NEW2 = '''#include "common/scummsys.h"
+# glibc's signal.h pulls in unistd.h, which common/forbidden.h rejects, so it
+# has to come before scummsys.h.
+NEW2 = '''#include <signal.h>
 
-#include <signal.h>
+#include "common/scummsys.h"
+
 extern volatile sig_atomic_t g_saveAndQuit;
 
 #if !defined(DISABLE_DEFAULT_EVENTMANAGER)'''
