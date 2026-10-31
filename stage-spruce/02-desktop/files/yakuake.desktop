@@ -1,0 +1,6 @@
+[Desktop Entry]
+Type=Application
+Name=Yakuake
+Exec=yakuake
+Icon=yakuake
+Terminal=false

@@ -3,3 +3,5 @@ pipewire pipewire-pulse pipewire-alsa wireplumber
 rpi-imager code firefox vlc
 gimp featherpad lximage-qt lxqt-archiver qpdfview screengrab galculator
 pavucontrol-qt nm-tray blueman gparted
+yakuake kolourpaint
+libreoffice-writer libreoffice-calc libreoffice-impress libreoffice-qt6
