@@ -1,0 +1,58 @@
+name: Build emulators
+
+on:
+  workflow_dispatch:
+    inputs:
+      emulator:
+        description: "One emulator, or all"
+        default: all
+
+permissions:
+  contents: write
+
+env:
+  TAG: beta-emulators
+
+jobs:
+  prepare:
+    runs-on: ubuntu-24.04-arm
+    outputs:
+      list: ${{ steps.list.outputs.list }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: list
+        env:
+          EMULATOR: ${{ inputs.emulator }}
+        run: |
+          if [ "$EMULATOR" = all ]; then
+            list=$(cd emulators && ls -d */ | tr -d / | jq -Rsc 'split("\n") | map(select(length > 0))')
+          else
+            list=$(jq -nc --arg e "$EMULATOR" '[$e]')
+          fi
+          echo "list=$list" >> "$GITHUB_OUTPUT"
+      - name: Ensure the release exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 ||
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+              --title "Emulator builds" --notes "Native arm64 emulator builds used by the image." --prerelease
+
+  build:
+    needs: prepare
+    runs-on: ubuntu-24.04-arm
+    strategy:
+      fail-fast: false
+      matrix:
+        emulator: ${{ fromJson(needs.prepare.outputs.list) }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: ./emulators/build.sh "${{ matrix.emulator }}" "output/${{ matrix.emulator }}"
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NAME: ${{ matrix.emulator }}
+        run: |
+          tar -czf "$NAME.tar.gz" -C "output/$NAME" .
+          gh release upload "$TAG" "$NAME.tar.gz" --repo "$GITHUB_REPOSITORY" --clobber

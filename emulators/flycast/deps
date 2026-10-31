@@ -1,0 +1,1 @@
+cmake libsdl2-dev libasound2-dev zlib1g-dev libudev-dev libevdev-dev libzip-dev libgles-dev libegl-dev libcurl4-openssl-dev libssl-dev libvulkan-dev

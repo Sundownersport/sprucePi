@@ -1,0 +1,1 @@
+cmake nasm libsdl2-dev libsdl2-ttf-dev libasound2-dev libfreetype-dev libgles-dev libegl-dev libpng-dev zlib1g-dev

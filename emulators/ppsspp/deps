@@ -1,0 +1,1 @@
+cmake libsdl2-dev libasound2-dev libgles-dev libegl-dev libpng-dev zlib1g-dev libglew-dev libzip-dev

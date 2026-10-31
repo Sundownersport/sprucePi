@@ -1,0 +1,1 @@
+cmake libsdl2-dev libasound2-dev libpulse-dev zlib1g-dev libudev-dev libgles-dev libegl-dev libboost-filesystem-dev libboost-system-dev libboost-locale-dev libboost-date-time-dev libboost-thread-dev libpng-dev libglew-dev libssl-dev libvulkan-dev libglm-dev
