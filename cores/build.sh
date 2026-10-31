@@ -17,7 +17,8 @@ fi
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
 apt-get install -y --no-install-recommends build-essential cmake git pkg-config python3 ca-certificates \
-	zip unzip curl libgl-dev libgles-dev libegl-dev zlib1g-dev
+	zip unzip curl libgl-dev libgles-dev libegl-dev zlib1g-dev \
+	$(cat "/src/cores/deps/$core" 2>/dev/null)
 
 # Many cores predate GCC 14, which made these errors.
 relax="-Wno-error=implicit-function-declaration -Wno-error=implicit-int -Wno-error=int-conversion -Wno-error=incompatible-pointer-types"

@@ -1,9 +1,11 @@
+2048
 81
 a5200
 ardens
 arduous
 armgba
 atari800
+bk
 bluemsx
 cap32
 chailove
@@ -13,6 +15,7 @@ daphne
 dosbox_pure
 easyrpg
 ecwolf
+fake08
 fbalpha2012
 fbneo
 fceumm
@@ -21,6 +24,7 @@ flycast
 fmsx
 freechaf
 freeintv
+frodo
 fuse
 gambatte
 gametank
@@ -36,6 +40,7 @@ gw
 handy
 hatari
 lowresnx
+lutro
 mame2003_plus
 mednafen_lynx
 mednafen_ngp
@@ -46,10 +51,12 @@ mednafen_supergrafx
 mednafen_vb
 mednafen_wswan
 mgba
+mu
 mupen64plus_next
 neocd
 nestopia
 np2kai
+numero
 o2em
 opera
 parallel_n64
@@ -69,12 +76,15 @@ reminiscence
 retro8
 sameduck
 snes9x
+squirreljme
 stella2014
 swanstation
+tgbdual
 theodore
 tic80
 tyrquake
 uae4arm
+uw8
 uzem
 vecx
 vemulator

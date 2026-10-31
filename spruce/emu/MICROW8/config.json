@@ -1,0 +1,29 @@
+{
+  "label": "MicroW8",
+  "themecolor": "1e7878",
+  "launch": "../../spruce/scripts/emu/standard_launch.sh",
+  "extlist": "uw8|wasm",
+  "launchlist": [],
+  "menuOptions": {
+    "Governor": {
+      "display": "CPU Mode",
+      "options": [
+        "Smart",
+        "Performance",
+        "Overclock"
+      ],
+      "selected": "Smart",
+      "overrides": {}
+    }
+  },
+  "sortOrder": 9040,
+  "brand": "MicroW8",
+  "type": "homeconsole",
+  "releaseYear": 2021,
+  "default_emulator": "uw8",
+  "scaling_min_freq": 408000,
+  "alternativeFolderNames": [
+    "microw8",
+    "uw8"
+  ]
+}

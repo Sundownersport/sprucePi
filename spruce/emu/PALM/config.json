@@ -1,0 +1,29 @@
+{
+  "label": "Palm OS",
+  "themecolor": "3c6e3c",
+  "launch": "../../spruce/scripts/emu/standard_launch.sh",
+  "extlist": "prc|pqa|img|pdb|zip",
+  "launchlist": [],
+  "menuOptions": {
+    "Governor": {
+      "display": "CPU Mode",
+      "options": [
+        "Smart",
+        "Performance",
+        "Overclock"
+      ],
+      "selected": "Smart",
+      "overrides": {}
+    }
+  },
+  "sortOrder": 9010,
+  "brand": "Palm",
+  "type": "handheld",
+  "releaseYear": 1996,
+  "default_emulator": "mu",
+  "scaling_min_freq": 408000,
+  "alternativeFolderNames": [
+    "palm",
+    "palmos"
+  ]
+}

@@ -16,6 +16,15 @@
       ],
       "selected": "Smart",
       "overrides": {}
+    },
+    "Emulator": {
+      "display": "Emulator",
+      "options": [
+        "vice_x64",
+        "frodo"
+      ],
+      "selected": "vice_x64",
+      "overrides": {}
     }
   },
   "sortOrder": 1100,
@@ -24,5 +33,12 @@
   "releaseYear": 1982,
   "default_emulator": "vice_x64",
   "scaling_min_freq": 480000,
-  "alternativeFolderNames": ["C64", "COMMODORE64", "commodore", "Commodore64", "commodore64", "c64"]
+  "alternativeFolderNames": [
+    "C64",
+    "COMMODORE64",
+    "commodore",
+    "Commodore64",
+    "commodore64",
+    "c64"
+  ]
 }

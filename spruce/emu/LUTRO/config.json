@@ -1,0 +1,28 @@
+{
+  "label": "Lutro",
+  "themecolor": "5a3278",
+  "launch": "../../spruce/scripts/emu/standard_launch.sh",
+  "extlist": "lutro|love|lua",
+  "launchlist": [],
+  "menuOptions": {
+    "Governor": {
+      "display": "CPU Mode",
+      "options": [
+        "Smart",
+        "Performance",
+        "Overclock"
+      ],
+      "selected": "Smart",
+      "overrides": {}
+    }
+  },
+  "sortOrder": 9030,
+  "brand": "Lutro",
+  "type": "homeconsole",
+  "releaseYear": 2015,
+  "default_emulator": "lutro",
+  "scaling_min_freq": 408000,
+  "alternativeFolderNames": [
+    "lutro"
+  ]
+}

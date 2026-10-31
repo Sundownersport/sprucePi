@@ -1,0 +1,6 @@
+{
+  "label": "2048",
+  "launch": "launch.sh",
+  "description": "Slide the tiles to reach 2048",
+  "hideInSimpleMode": false
+}

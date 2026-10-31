@@ -22,7 +22,8 @@
       "options": [
         "gambatte",
         "mgba",
-        "armgba"
+        "armgba",
+        "tgbdual"
       ],
       "selected": "gambatte",
       "overrides": {}
@@ -34,5 +35,11 @@
   "releaseYear": 1989,
   "default_emulator": "gambatte",
   "scaling_min_freq": 240000,
-  "alternativeFolderNames": ["GAMEBOY","gb","gameboy","dmg","DMG"]
+  "alternativeFolderNames": [
+    "GAMEBOY",
+    "gb",
+    "gameboy",
+    "dmg",
+    "DMG"
+  ]
 }

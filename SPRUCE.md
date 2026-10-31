@@ -37,5 +37,5 @@ release, which the image build unpacks into `/opt/spruce/emulators`. To build on
 ## Cores
 
 `cores/list.txt` names the cores built by the "Build cores" workflow, with libretro-super or a recipe in
-`cores/custom`, and posted to the `beta-cores` release. The image starts from spruceOS's cores, at the commit in
+`cores/custom`, and posted to the `beta-cores` release. `cores/deps/<core>` lists extra packages a core needs. The image starts from spruceOS's cores, at the commit in
 `stage-spruce/01-spruce/02-run.sh`, and replaces each one that has its own build.

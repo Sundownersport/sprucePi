@@ -1,0 +1,28 @@
+{
+  "label": "TI-83",
+  "themecolor": "283c5a",
+  "launch": "../../spruce/scripts/emu/standard_launch.sh",
+  "extlist": "8xp|8xk|8xg",
+  "launchlist": [],
+  "menuOptions": {
+    "Governor": {
+      "display": "CPU Mode",
+      "options": [
+        "Smart",
+        "Performance",
+        "Overclock"
+      ],
+      "selected": "Smart",
+      "overrides": {}
+    }
+  },
+  "sortOrder": 9020,
+  "brand": "Texas Instruments",
+  "type": "handheld",
+  "releaseYear": 1996,
+  "default_emulator": "numero",
+  "scaling_min_freq": 408000,
+  "alternativeFolderNames": [
+    "ti83"
+  ]
+}

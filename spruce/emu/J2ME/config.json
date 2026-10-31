@@ -1,0 +1,30 @@
+{
+  "label": "J2ME",
+  "icon": "j2me.png",
+  "iconsel": "j2me_sel.png",
+  "themecolor": "e76f00",
+  "launch": "../../spruce/scripts/emu/standard_launch.sh",
+  "extlist": "jar|kjx|jad",
+  "launchlist": [],
+  "menuOptions": {
+    "Governor": {
+      "display": "CPU Mode",
+      "options": [
+        "Smart",
+        "Performance",
+        "Overclock"
+      ],
+      "selected": "Smart",
+      "overrides": {}
+    }
+  },
+  "sortOrder": 9050,
+  "brand": "Sun",
+  "type": "handheld",
+  "releaseYear": 2000,
+  "default_emulator": "squirreljme",
+  "scaling_min_freq": 408000,
+  "alternativeFolderNames": [
+    "j2me"
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "label": "Elektronika BK",
+  "themecolor": "5a3c28",
+  "launch": "../../spruce/scripts/emu/standard_launch.sh",
+  "extlist": "bin|zip",
+  "launchlist": [],
+  "menuOptions": {
+    "Governor": {
+      "display": "CPU Mode",
+      "options": [
+        "Smart",
+        "Performance",
+        "Overclock"
+      ],
+      "selected": "Smart",
+      "overrides": {}
+    }
+  },
+  "sortOrder": 9000,
+  "brand": "Elektronika",
+  "type": "computer",
+  "releaseYear": 1984,
+  "default_emulator": "bk",
+  "scaling_min_freq": 408000,
+  "alternativeFolderNames": [
+    "bk"
+  ]
+}
