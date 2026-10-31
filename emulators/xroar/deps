@@ -1,0 +1,1 @@
+curl libsdl2-dev libasound2-dev libpng-dev zlib1g-dev libevdev-dev
