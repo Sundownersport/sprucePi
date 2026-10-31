@@ -2,3 +2,6 @@ python3 python3-sdl2 python3-pil python3-psutil python3-serial
 libsdl2-2.0-0 libsdl2-image-2.0-0 libsdl2-ttf-2.0-0 libsdl2-mixer-2.0-0 libsdl2-gfx-1.0-0
 libegl1 libgles2 libgbm1 libgl1-mesa-dri
 exfatprogs fdisk jq
+libinih1 libfmt10 libicu76 libpixman-1-0 libpng16-16t64
+libflac14 libmpg123-0t64 libmpeg2-4
+libsdl2-net-2.0-0 libgomp1
