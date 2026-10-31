@@ -1,0 +1,747 @@
+import math
+import time
+import datetime
+import os
+import sdl2
+import sdl2.sdlimage
+import sdl2.sdlttf
+
+from devices.device import Device
+from display.font_purpose import FontPurpose
+from menus.language.language import Language
+from themes.theme import Theme
+from utils.logger import PyUiLogger
+
+
+class ScreenSaver:
+    # Stored in the theme as bgImage to select the random box art mode
+    BOXART_SENTINEL = "__boxart__"
+
+    # Clock is rendered as HH:MM and the battery moves slowly, so once a minute
+    # covers every widget we draw.
+    WIDGET_TYPES_THAT_CHANGE = ("clock", "date", "battery")
+
+    _animation_path = None
+    _animation = None
+    _animation_frame = 0
+    _animation_next_time = 0
+    _boxart_current = None
+    _boxart_next_time = 0
+    _widgets_next_time = 0
+    _static_surface = None
+    _static_key = None
+
+    @classmethod
+    def render(cls):
+        widgets = []
+        try:
+            renderer = Device.get_device()
+            screen_w = renderer.screen_width()
+            screen_h = renderer.screen_height()
+            from display.display import Display
+
+            widgets = cls._get_enabled_widgets()
+
+            cls._render_background(screen_w, screen_h, Display)
+
+            for widget in widgets:
+                cls._render_widget(widget, screen_w, screen_h, Display)
+
+            cls._present_without_bars(Display)
+        except Exception as e:
+            PyUiLogger.get_logger().error(f"ScreenSaver render error: {e}")
+        finally:
+            # Always push the deadline forward, even when the render above failed.
+            # Leaving it in the past means every poll retries straight away, which
+            # would spin the CPU and fill the log rather than fail quietly.
+            cls._schedule_next_widget_render(widgets)
+
+    @classmethod
+    def _schedule_next_widget_render(cls, widgets):
+        """
+        The clock, date and battery go stale on their own, so they need a redraw
+        of their own. Without this the screensaver only redraws when the
+        background wants to, meaning a static or solid colour background left the
+        time and battery frozen at whatever they were when it kicked in.
+        """
+        if not any(w.get("type", "") in cls.WIDGET_TYPES_THAT_CHANGE for w in widgets):
+            cls._widgets_next_time = 0
+            return
+
+        # Land on the start of the next minute so the clock ticks over when it
+        # actually changes rather than drifting a little further out each time.
+        now = time.time()
+        cls._widgets_next_time = now + (60 - (now % 60))
+
+    @classmethod
+    def render_if_needed(cls):
+        # Two different clocks on purpose. Frame and box art pacing is "how long
+        # since the last one", so it uses the monotonic clock and survives the
+        # user setting the time. The widget deadline is an actual wall clock
+        # instant -- the start of the next minute -- so it has to stay on
+        # time.time() or the clock would stop ticking on the minute.
+        elapsed_now = time.monotonic()
+        wall_now = time.time()
+        if cls._animation_path and elapsed_now >= cls._animation_next_time:
+            cls.render()
+        elif cls._boxart_next_time and elapsed_now >= cls._boxart_next_time:
+            cls.render()
+        elif cls._widgets_next_time and wall_now >= cls._widgets_next_time:
+            cls.render()
+
+    @classmethod
+    def is_animating(cls):
+        """
+        True when the background itself keeps changing -- gif frames or box art
+        rotation. Those need the CPU to go on doing real work, so the device
+        should not be idled down underneath them.
+        """
+        return bool(cls._animation_path) or bool(cls._boxart_next_time)
+
+    @classmethod
+    def clear_cache(cls):
+        cls._clear_animation()
+        cls._clear_boxart()
+        cls._free_static_surface()
+        cls._widgets_next_time = 0
+
+    @classmethod
+    def _present_without_bars(cls, Display):
+        sdl2.SDL_SetRenderTarget(Display.renderer.renderer, None)
+
+        if Device.get_device().should_scale_screen():
+            scaled_canvas = Display.scale_texture_to_fit(
+                Display.render_canvas,
+                Device.get_device().output_screen_width(),
+                Device.get_device().output_screen_height()
+            )
+            sdl2.SDL_RenderCopy(Display.renderer.sdlrenderer, scaled_canvas, None, None)
+            sdl2.SDL_DestroyTexture(scaled_canvas)
+        elif Device.get_device().screen_rotation() == 0:
+            sdl2.SDL_RenderCopy(Display.renderer.sdlrenderer, Display.render_canvas, None, None)
+        else:
+            rotated_texture = Display.rotate_canvas()
+            if rotated_texture is not None:
+                sdl2.SDL_RenderCopy(Display.renderer.sdlrenderer, rotated_texture, None, None)
+                sdl2.SDL_DestroyTexture(rotated_texture)
+
+        sdl2.SDL_SetRenderTarget(Display.renderer.renderer, Display.render_canvas)
+        Display.renderer.present()
+        Device.get_device().post_present_operations()
+
+    @classmethod
+    def _render_background(cls, screen_w, screen_h, Display):
+        ss = Theme._data.get("screensaver", {})
+        bg_image = cls._get_bg_image(ss.get("bgImage", ""))
+        overlay_opacity = ss.get("overlayOpacity", 0.3)
+        overlay_color = Theme.hex_to_color(ss.get("overlayColor", "#000000"))
+        blur = ss.get("blur", 0)
+        bg_color = Theme.hex_to_color(ss.get("bgColor", "#000000"))
+
+        if bg_image == cls.BOXART_SENTINEL:
+            cls._clear_animation()
+            cls._free_static_surface()
+            cls._render_boxart_background(screen_w, screen_h, Display, bg_color)
+        elif bg_image and os.path.exists(bg_image):
+            cls._clear_boxart()
+            if bg_image.lower().endswith(".gif"):
+                cls._free_static_surface()
+                cls._render_gif_background(bg_image, screen_w, screen_h, Display, bg_color)
+            else:
+                cls._clear_animation()
+                cls._render_static_background(bg_image, screen_w, screen_h, Display, bg_color, blur)
+        else:
+            cls._clear_animation()
+            cls._clear_boxart()
+            cls._free_static_surface()
+            sdl2.SDL_SetRenderDrawColor(Display.renderer.sdlrenderer,
+                bg_color[0], bg_color[1], bg_color[2], 255)
+            sdl2.SDL_RenderClear(Display.renderer.sdlrenderer)
+
+        if 0 < overlay_opacity <= 1.0:
+            alpha = int(overlay_opacity * 255)
+            sdl2.SDL_SetRenderDrawBlendMode(Display.renderer.sdlrenderer, sdl2.SDL_BLENDMODE_BLEND)
+            sdl2.SDL_SetRenderDrawColor(Display.renderer.sdlrenderer,
+                overlay_color[0], overlay_color[1], overlay_color[2], alpha)
+            rect = sdl2.SDL_Rect(0, 0, screen_w, screen_h)
+            sdl2.SDL_RenderFillRect(Display.renderer.sdlrenderer, rect)
+
+    @classmethod
+    def _render_static_background(cls, bg_image, screen_w, screen_h, Display, bg_color, blur):
+        # The decoded surface is kept between renders: loading it costs a read and
+        # a decode, and _apply_blur is a per-pixel loop in Python. The widgets
+        # redraw once a minute and neither should be paid again each time.
+        # A surface rather than a texture, so it survives Display.reinitialize()
+        # tearing the renderer down -- same as the box art and gif frames.
+        key = (bg_image, blur)
+
+        if cls._static_surface is None or cls._static_key != key:
+            cls._free_static_surface()
+
+            surface = Display.image_load(bg_image)
+            if surface:
+                # Blur first: it reads the pixels itself and only understands 24
+                # and 32 bit surfaces, so it has to see the format IMG_Load gave
+                # us rather than whatever the renderer wants.
+                if blur > 0:
+                    surface = cls._apply_blur(surface, blur)
+                surface = Display.convert_surface_to_safe_format(surface)
+            if surface:
+                cls._static_surface = surface
+                cls._static_key = key
+
+        if cls._static_surface is None:
+            PyUiLogger.get_logger().error(f"ScreenSaver could not load background {bg_image}")
+            cls._clear_to_bg_color(Display, bg_color)
+            return
+
+        texture = sdl2.SDL_CreateTextureFromSurface(Display.renderer.renderer, cls._static_surface)
+        if texture:
+            sdl2.SDL_SetTextureBlendMode(texture, sdl2.SDL_BLENDMODE_BLEND)
+            dst = sdl2.SDL_Rect(0, 0, screen_w, screen_h)
+            sdl2.SDL_RenderCopy(Display.renderer.renderer, texture, None, dst)
+            sdl2.SDL_DestroyTexture(texture)
+        else:
+            # Falling through here without drawing anything would leave whatever
+            # the menu last drew on screen, which reads as the screensaver simply
+            # ignoring the chosen image.
+            PyUiLogger.get_logger().error(
+                f"ScreenSaver could not create a texture for {bg_image}: {cls._sdl_error()}")
+            cls._clear_to_bg_color(Display, bg_color)
+
+    @classmethod
+    def _clear_to_bg_color(cls, Display, bg_color):
+        sdl2.SDL_SetRenderDrawColor(Display.renderer.sdlrenderer,
+            bg_color[0], bg_color[1], bg_color[2], 255)
+        sdl2.SDL_RenderClear(Display.renderer.sdlrenderer)
+
+    @classmethod
+    def _sdl_error(cls):
+        error = sdl2.SDL_GetError()
+        return error.decode("utf-8", "replace") if error else "unknown error"
+
+    @classmethod
+    def _texture_from_borrowed_surface(cls, surface, Display):
+        """
+        Same pixel format conversion Display.convert_surface_to_safe_format does,
+        but through a copy. Gif frames belong to the animation and get reused every
+        time round, so the original has to be left alone.
+        """
+        if surface and Device.get_device().might_require_surface_format_conversion():
+            if surface.contents.format.contents.format not in Display.supported_formats:
+                converted = sdl2.SDL_ConvertSurfaceFormat(surface, sdl2.SDL_PIXELFORMAT_ARGB1555, 0)
+                if converted:
+                    texture = sdl2.SDL_CreateTextureFromSurface(Display.renderer.renderer, converted)
+                    sdl2.SDL_FreeSurface(converted)
+                    return texture
+        return sdl2.SDL_CreateTextureFromSurface(Display.renderer.renderer, surface)
+
+    @classmethod
+    def _free_static_surface(cls):
+        if cls._static_surface is not None:
+            sdl2.SDL_FreeSurface(cls._static_surface)
+        cls._static_surface = None
+        cls._static_key = None
+
+    @classmethod
+    def _render_boxart_background(cls, screen_w, screen_h, Display, bg_color):
+        from utils.boxart.boxart_library import BoxArtLibrary
+
+        BoxArtLibrary.ensure_scanned()
+
+        sdl2.SDL_SetRenderDrawColor(Display.renderer.sdlrenderer,
+            bg_color[0], bg_color[1], bg_color[2], 255)
+        sdl2.SDL_RenderClear(Display.renderer.sdlrenderer)
+
+        interval = Theme.get_screensaver_boxart_interval_sec()
+        now = time.monotonic()
+
+        # Only advance on a cycle boundary. render() also gets called for unrelated reasons
+        # (blank_screen, the layout editor redrawing) and those must not push the deadline out.
+        if cls._boxart_current is None or now >= cls._boxart_next_time:
+            next_surface = cls._load_next_boxart()
+            if next_surface is not None:
+                cls._free_boxart_surface()
+                cls._boxart_current = next_surface
+
+            # While scanning there is nothing to show yet, so check back shortly and draw
+            # just the background colour. Once the scan is done and still empty, back off.
+            still_waiting = cls._boxart_current is None and BoxArtLibrary.is_scanning()
+            cls._boxart_next_time = now + (1 if still_waiting else interval)
+
+        if cls._boxart_current is None:
+            return
+
+        cls._draw_fitted_surface(cls._boxart_current, screen_w, screen_h, Display)
+
+    @classmethod
+    def _load_next_boxart(cls):
+        """Load the next box art surface, dropping any that fail to decode."""
+        from utils.boxart.boxart_library import BoxArtLibrary
+
+        from display.display import Display
+
+        MAX_ATTEMPTS = 5
+        for _ in range(MAX_ATTEMPTS):
+            candidate = BoxArtLibrary.next_image()
+            if candidate is None:
+                return None
+            surface = Display.convert_surface_to_safe_format(Display.image_load(candidate))
+            if surface:
+                return surface
+            PyUiLogger.get_logger().warning(f"ScreenSaver could not load box art {candidate}")
+            BoxArtLibrary.discard(candidate)
+        return None
+
+    @classmethod
+    def _draw_fitted_surface(cls, surface, screen_w, screen_h, Display):
+        """Aspect fit the surface centered on screen, leaving the background colour visible."""
+        texture = sdl2.SDL_CreateTextureFromSurface(Display.renderer.renderer, surface)
+        if texture:
+            src_w = surface.contents.w
+            src_h = surface.contents.h
+            if src_w > 0 and src_h > 0:
+                sdl2.SDL_SetTextureBlendMode(texture, sdl2.SDL_BLENDMODE_BLEND)
+                scale = min(screen_w / src_w, screen_h / src_h)
+                dst_w = max(1, int(src_w * scale))
+                dst_h = max(1, int(src_h * scale))
+                src = sdl2.SDL_Rect(0, 0, src_w, src_h)
+                dst = sdl2.SDL_Rect((screen_w - dst_w) // 2, (screen_h - dst_h) // 2, dst_w, dst_h)
+                sdl2.SDL_RenderCopy(Display.renderer.renderer, texture, src, dst)
+            sdl2.SDL_DestroyTexture(texture)
+
+    @classmethod
+    def _free_boxart_surface(cls):
+        if cls._boxart_current is not None:
+            sdl2.SDL_FreeSurface(cls._boxart_current)
+            cls._boxart_current = None
+
+    @classmethod
+    def _clear_boxart(cls):
+        from utils.boxart.boxart_library import BoxArtLibrary
+        cls._free_boxart_surface()
+        cls._boxart_next_time = 0
+        BoxArtLibrary.reset()
+
+    @classmethod
+    def _render_gif_background(cls, bg_image, screen_w, screen_h, Display, bg_color):
+        if cls._animation_path != bg_image:
+            cls._load_animation(bg_image, Display)
+
+        if not cls._animation:
+            sdl2.SDL_SetRenderDrawColor(Display.renderer.sdlrenderer,
+                bg_color[0], bg_color[1], bg_color[2], 255)
+            sdl2.SDL_RenderClear(Display.renderer.sdlrenderer)
+            return
+
+        anim = cls._animation.contents
+        frame = cls._animation_frame % anim.count
+        surface = anim.frames[frame]
+        texture = cls._texture_from_borrowed_surface(surface, Display)
+        if texture:
+            sdl2.SDL_SetTextureBlendMode(texture, sdl2.SDL_BLENDMODE_BLEND)
+            src = sdl2.SDL_Rect(0, 0, anim.w, anim.h)
+            dst = sdl2.SDL_Rect(0, 0, screen_w, screen_h)
+            sdl2.SDL_RenderCopy(Display.renderer.renderer, texture, src, dst)
+            sdl2.SDL_DestroyTexture(texture)
+        else:
+            PyUiLogger.get_logger().error(
+                f"ScreenSaver could not create a texture for frame {frame} of {bg_image}: {cls._sdl_error()}")
+            cls._clear_to_bg_color(Display, bg_color)
+
+        # Outside the branch on purpose: a frame that failed still has to move the
+        # clock on, or render_if_needed sees a deadline in the past and retries
+        # flat out.
+        delay = anim.delays[frame] if anim.delays else 100
+        if delay < 100:
+            delay = 100
+        cls._animation_frame = (frame + 1) % anim.count
+        cls._animation_next_time = time.monotonic() + delay / 1000.0
+
+    @classmethod
+    def _load_animation(cls, bg_image, Display):
+        cls._clear_animation()
+        animation = sdl2.sdlimage.IMG_LoadAnimation(bg_image.encode("utf-8"))
+        if not animation:
+            return
+
+        cls._animation_path = bg_image
+        cls._animation = animation
+        cls._animation_frame = 0
+        cls._animation_next_time = 0
+        anim = animation.contents
+
+    @classmethod
+    def _clear_animation(cls):
+        if cls._animation:
+            sdl2.sdlimage.IMG_FreeAnimation(cls._animation)
+        cls._animation = None
+        cls._animation_path = None
+        cls._animation_frame = 0
+        cls._animation_next_time = 0
+
+    @classmethod
+    def _get_bg_image(cls, configured_path):
+        if configured_path == cls.BOXART_SENTINEL:
+            return configured_path
+
+        candidates = []
+        if configured_path:
+            candidates.append(configured_path)
+            if not os.path.isabs(configured_path):
+                candidates.append(os.path.join(Theme.get_theme_path(), configured_path))
+
+        candidates.append(os.path.join(Theme.get_theme_path(), "screensaver.gif"))
+        candidates.append(os.path.join(Theme.get_theme_path(), "screensaver.png"))
+
+        for path in candidates:
+            if path and os.path.exists(path):
+                return path
+        return ""
+
+    @classmethod
+    def _apply_blur(cls, surface, radius):
+        w = surface.contents.w
+        h = surface.contents.h
+        fmt = surface.contents.format.contents
+        src_pixels = sdl2.SDL_LockSurface(surface)
+        if src_pixels == 0:
+            return surface
+
+        try:
+            pixels = surface.contents.pixels
+            pitch = surface.contents.pitch
+            bpp = fmt.BytesPerPixel
+            temp = sdl2.SDL_CreateRGBSurfaceWithFormat(0, w, h, 32, fmt.format)
+            if not temp:
+                return surface
+
+            sdl2.SDL_LockSurface(temp)
+            try:
+                temp_pixels = temp.contents.pixels
+                temp_pitch = temp.contents.pitch
+
+                r = min(radius, min(w, h) // 2)
+                if r < 1:
+                    r = 1
+
+                kernel_size = 2 * r + 1
+                for y in range(h):
+                    for x in range(w):
+                        sum_r, sum_g, sum_b, count = 0, 0, 0, 0
+                        for ky in range(-r, r + 1):
+                            sy = y + ky
+                            if sy < 0 or sy >= h:
+                                continue
+                            for kx in range(-r, r + 1):
+                                sx = x + kx
+                                if sx < 0 or sx >= w:
+                                    continue
+                                offset = sy * pitch + sx * bpp
+                                if bpp == 4:
+                                    b = pixels[offset]
+                                    g = pixels[offset + 1]
+                                    rd = pixels[offset + 2]
+                                    a = pixels[offset + 3]
+                                elif bpp == 3:
+                                    b = pixels[offset]
+                                    g = pixels[offset + 1]
+                                    rd = pixels[offset + 2]
+                                    a = 255
+                                else:
+                                    continue
+                                sum_r += rd
+                                sum_g += g
+                                sum_b += b
+                                count += 1
+                        if count > 0:
+                            avg_r = sum_r // count
+                            avg_g = sum_g // count
+                            avg_b = sum_b // count
+                        else:
+                            avg_r, avg_g, avg_b = 0, 0, 0
+                        dst_offset = y * temp_pitch + x * bpp
+                        if bpp == 4:
+                            temp_pixels[dst_offset] = avg_b
+                            temp_pixels[dst_offset + 1] = avg_g
+                            temp_pixels[dst_offset + 2] = avg_r
+                            temp_pixels[dst_offset + 3] = 255
+                        elif bpp == 3:
+                            temp_pixels[dst_offset] = avg_b
+                            temp_pixels[dst_offset + 1] = avg_g
+                            temp_pixels[dst_offset + 2] = avg_r
+            finally:
+                sdl2.SDL_UnlockSurface(temp)
+        finally:
+            sdl2.SDL_UnlockSurface(surface)
+
+        sdl2.SDL_BlitSurface(temp, None, surface, None)
+        sdl2.SDL_FreeSurface(temp)
+        return surface
+
+    @classmethod
+    def _get_enabled_widgets(cls):
+        ss = Theme._data.get("screensaver", {})
+        show_clock = ss.get("showClock", True)
+        show_date = ss.get("showDate", True)
+        show_battery = ss.get("showBattery", True)
+
+        all_widgets = Theme.get_screensaver_widgets()
+        enabled = []
+        for w in all_widgets:
+            if not w.get("enabled", True):
+                continue
+            wtype = w.get("type", "")
+            if wtype == "clock" and not show_clock:
+                continue
+            if wtype == "date" and not show_date:
+                continue
+            if wtype == "battery" and not show_battery:
+                continue
+            enabled.append(w)
+        return enabled
+
+    @classmethod
+    def _render_widget(cls, widget, screen_w, screen_h, Display):
+        wtype = widget.get("type", "")
+        x = int(widget.get("x", 0.5) * screen_w)
+        y = int(widget.get("y", 0.5) * screen_h)
+        font_size = int(widget.get("fontSize", 24))
+        color = Theme.hex_to_color(widget.get("color", "#FFFFFF"))
+        multiplier = Theme._default_multiplier
+        scaled_size = max(12, int(font_size * multiplier))
+
+        if wtype == "clock":
+            if widget.get("style") == "analog":
+                cls._draw_analog_clock(x, y, scaled_size, color, Display)
+            else:
+                from menus.common.top_bar import TopBar
+                text = TopBar.get_current_time_hhmm()
+                cls._draw_text(text, x, y, color, scaled_size, Display, center=True, widget=widget)
+
+        elif wtype == "date":
+            now = datetime.datetime.now()
+            # weekdays and months are used to translate the date in different languages, date_format helps format the date in any configuration. 
+            weekdays = Language.get("dateWeekdays")
+            months = Language.get("dateMonths")
+            date_format = Language.get("screensaverDateFormat")
+            if weekdays and months and date_format and len(weekdays) == 7 and len(months) == 12:
+                text = date_format.format(
+                    weekday=weekdays[now.weekday()],
+                    month=months[now.month - 1],
+                    day=now.day,
+                )
+            else:
+                text = now.strftime("%A, %B %d")
+            cls._draw_text(text, x, y, color, scaled_size, Display, center=True, widget=widget)
+
+        elif wtype == "battery":
+            try:
+                percent = Device.get_device().get_battery_percent()
+                charging = Device.get_device().get_charge_status()
+                from devices.charge.charge_status import ChargeStatus
+                symbol = "+" if charging == ChargeStatus.CHARGING else ""
+                text = f"{symbol}{percent}%"
+                if percent <= 10:
+                    color = (255, 80, 80)
+                elif percent <= 30:
+                    color = (255, 200, 80)
+                style = widget.get("style", "percent")
+                if style == "bar":
+                    cls._draw_battery_bar(percent, x, y, color, screen_w, screen_h, Display)
+                elif style == "pill":
+                    cls._draw_battery_pill(percent, x, y, color, screen_w, screen_h, Display)
+                elif style == "segments":
+                    cls._draw_battery_segments(percent, x, y, color, screen_w, screen_h, Display)
+                elif style == "blocks":
+                    filled = max(0, min(5, int(round(percent / 20))))
+                    text = "[" + ("|" * filled).ljust(5, " ") + f"] {percent}%"
+                    cls._draw_text(text, x, y, color, scaled_size, Display, center=True, widget=widget)
+                else:
+                    cls._draw_text(text, x, y, color, scaled_size, Display, center=True, widget=widget)
+            except Exception:
+                pass
+
+        elif wtype == "text":
+            text = widget.get("value", "")
+            if text:
+                cls._draw_text(text, x, y, color, scaled_size, Display, center=True, widget=widget)
+
+    @classmethod
+    def _draw_analog_clock(cls, cx, cy, radius, color, Display):
+        # No second hand: the screensaver redraws once a minute.
+        renderer = Display.renderer.sdlrenderer
+        sdl2.SDL_SetRenderDrawColor(renderer, color[0], color[1], color[2], 255)
+
+        cls._fill_ring(cx, cy, radius, radius * 0.95, renderer)
+        for tick in range(60):
+            angle = tick * 6
+            if tick % 5 == 0:
+                cls._fill_hand(cx, cy, angle, radius * 0.78, radius * 0.9, radius * 0.06, radius * 0.06, renderer)
+            else:
+                cls._fill_hand(cx, cy, angle, radius * 0.85, radius * 0.9, radius * 0.02, radius * 0.02, renderer)
+
+        now = datetime.datetime.now()
+        hour_angle = (now.hour % 12 + now.minute / 60) * 30
+        minute_angle = now.minute * 6
+        cls._fill_hand(cx, cy, hour_angle, 0, radius * 0.5, radius * 0.08, radius * 0.04, renderer)
+        cls._fill_hand(cx, cy, minute_angle, 0, radius * 0.75, radius * 0.06, radius * 0.025, renderer)
+        cls._fill_ring(cx, cy, radius * 0.08, 0, renderer)
+
+    @classmethod
+    def _fill_hand(cls, cx, cy, angle_deg, start, end, start_width, end_width, renderer):
+        """A tapered bar from start to end along angle_deg, clockwise from 12."""
+        angle = math.radians(angle_deg)
+        dx, dy = math.sin(angle), -math.cos(angle)
+        px, py = -dy, dx
+        sx, sy = cx + dx * start, cy + dy * start
+        ex, ey = cx + dx * end, cy + dy * end
+        sw, ew = start_width / 2, end_width / 2
+        cls._fill_convex_polygon([
+            (sx + px * sw, sy + py * sw),
+            (ex + px * ew, ey + py * ew),
+            (ex - px * ew, ey - py * ew),
+            (sx - px * sw, sy - py * sw),
+        ], renderer)
+
+    @classmethod
+    def _fill_convex_polygon(cls, points, renderer):
+        top = int(math.floor(min(p[1] for p in points)))
+        bottom = int(math.ceil(max(p[1] for p in points)))
+        rects = []
+        for row in range(top, bottom):
+            sample = row + 0.5
+            xs = []
+            for (x1, y1), (x2, y2) in zip(points, points[1:] + points[:1]):
+                if (y1 <= sample < y2) or (y2 <= sample < y1):
+                    xs.append(x1 + (sample - y1) * (x2 - x1) / (y2 - y1))
+            if len(xs) >= 2:
+                left = int(round(min(xs)))
+                rects.append(sdl2.SDL_Rect(left, row, max(1, int(round(max(xs))) - left), 1))
+        cls._fill_rects(rects, renderer)
+
+    @classmethod
+    def _fill_ring(cls, cx, cy, outer, inner, renderer):
+        """A disc when inner is 0."""
+        rects = []
+        for row in range(int(math.floor(cy - outer)), int(math.ceil(cy + outer))):
+            dy = row + 0.5 - cy
+            if abs(dy) >= outer:
+                continue
+            half_outer = math.sqrt(outer * outer - dy * dy)
+            left = int(round(cx - half_outer))
+            right = int(round(cx + half_outer))
+            if abs(dy) < inner:
+                half_inner = math.sqrt(inner * inner - dy * dy)
+                inner_left = int(round(cx - half_inner))
+                inner_right = int(round(cx + half_inner))
+                rects.append(sdl2.SDL_Rect(left, row, max(1, inner_left - left), 1))
+                rects.append(sdl2.SDL_Rect(inner_right, row, max(1, right - inner_right), 1))
+            else:
+                rects.append(sdl2.SDL_Rect(left, row, max(1, right - left), 1))
+        cls._fill_rects(rects, renderer)
+
+    @classmethod
+    def _fill_rects(cls, rects, renderer):
+        if rects:
+            sdl2.SDL_RenderFillRects(renderer, (sdl2.SDL_Rect * len(rects))(*rects), len(rects))
+
+    @classmethod
+    def _draw_battery_bar(cls, percent, x, y, color, screen_w, screen_h, Display):
+        width = max(80, int(screen_w * 0.11))
+        height = max(24, int(screen_h * 0.035))
+        left = x - width // 2
+        top = y - height // 2
+        sdl2.SDL_SetRenderDrawBlendMode(Display.renderer.sdlrenderer, sdl2.SDL_BLENDMODE_BLEND)
+        sdl2.SDL_SetRenderDrawColor(Display.renderer.sdlrenderer, color[0], color[1], color[2], 255)
+        sdl2.SDL_RenderDrawRect(Display.renderer.sdlrenderer, sdl2.SDL_Rect(left, top, width, height))
+        sdl2.SDL_RenderDrawRect(Display.renderer.sdlrenderer, sdl2.SDL_Rect(left + width, top + height // 4, 6, height // 2))
+        fill_width = max(0, int((width - 6) * percent / 100))
+        if fill_width > 0:
+            sdl2.SDL_RenderFillRect(Display.renderer.sdlrenderer, sdl2.SDL_Rect(left + 3, top + 3, fill_width, height - 6))
+
+    @classmethod
+    def _draw_battery_pill(cls, percent, x, y, color, screen_w, screen_h, Display):
+        width = max(92, int(screen_w * 0.13))
+        height = max(26, int(screen_h * 0.04))
+        left = x - width // 2
+        top = y - height // 2
+        sdl2.SDL_SetRenderDrawBlendMode(Display.renderer.sdlrenderer, sdl2.SDL_BLENDMODE_BLEND)
+        sdl2.SDL_SetRenderDrawColor(Display.renderer.sdlrenderer, color[0], color[1], color[2], 255)
+        sdl2.SDL_RenderDrawRect(Display.renderer.sdlrenderer, sdl2.SDL_Rect(left, top, width, height))
+        sdl2.SDL_RenderDrawRect(Display.renderer.sdlrenderer, sdl2.SDL_Rect(left + 2, top + 2, width - 4, height - 4))
+        fill_width = max(0, int((width - 10) * percent / 100))
+        if fill_width > 0:
+            sdl2.SDL_RenderFillRect(Display.renderer.sdlrenderer, sdl2.SDL_Rect(left + 5, top + 5, fill_width, height - 10))
+
+    @classmethod
+    def _draw_battery_segments(cls, percent, x, y, color, screen_w, screen_h, Display):
+        segments = 5
+        width = max(100, int(screen_w * 0.14))
+        height = max(24, int(screen_h * 0.035))
+        gap = 4
+        segment_w = (width - gap * (segments - 1)) // segments
+        left = x - width // 2
+        top = y - height // 2
+        filled = max(0, min(segments, int(round(percent / 20))))
+        sdl2.SDL_SetRenderDrawBlendMode(Display.renderer.sdlrenderer, sdl2.SDL_BLENDMODE_BLEND)
+        for index in range(segments):
+            alpha = 255 if index < filled else 70
+            sdl2.SDL_SetRenderDrawColor(Display.renderer.sdlrenderer, color[0], color[1], color[2], alpha)
+            rect = sdl2.SDL_Rect(left + index * (segment_w + gap), top, segment_w, height)
+            if index < filled:
+                sdl2.SDL_RenderFillRect(Display.renderer.sdlrenderer, rect)
+            else:
+                sdl2.SDL_RenderDrawRect(Display.renderer.sdlrenderer, rect)
+
+    @classmethod
+    def _draw_text(cls, text, x, y, color, font_size, Display, center=True, widget=None):
+        font_path = cls._get_widget_font(widget)
+        try:
+            font = sdl2.sdlttf.TTF_OpenFont(font_path.encode("utf-8"), font_size) if font_path else None
+        except Exception:
+            font = None
+
+        if font is None:
+            return
+
+        try:
+            sdl_color = sdl2.SDL_Color(color[0], color[1], color[2], 255)
+            surface = sdl2.sdlttf.TTF_RenderUTF8_Blended(font, text.encode("utf-8"), sdl_color)
+            if not surface:
+                return
+
+            texture = sdl2.SDL_CreateTextureFromSurface(Display.renderer.renderer, surface)
+            if not texture:
+                sdl2.SDL_FreeSurface(surface)
+                return
+
+            w = surface.contents.w
+            h = surface.contents.h
+            if center:
+                draw_x = x - w // 2
+            else:
+                draw_x = x
+            draw_y = y - h // 2
+
+            dst = sdl2.SDL_Rect(draw_x, draw_y, w, h)
+            sdl2.SDL_RenderCopy(Display.renderer.renderer, texture, None, dst)
+            sdl2.SDL_DestroyTexture(texture)
+            sdl2.SDL_FreeSurface(surface)
+        except Exception as e:
+            PyUiLogger.get_logger().error(f"ScreenSaver text render error: {e}")
+        finally:
+            sdl2.sdlttf.TTF_CloseFont(font)
+
+    @classmethod
+    def _get_widget_font(cls, widget):
+        font = widget.get("font") if widget else None
+        candidates = []
+        if font:
+            candidates.append(font)
+            candidates.append(os.path.join(Theme.get_theme_path(), font))
+        candidates.append(Theme.get_font(FontPurpose.LIST))
+        for path in candidates:
+            if path and os.path.exists(path):
+                return path
+        return None

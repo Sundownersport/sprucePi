@@ -1,0 +1,130 @@
+from pathlib import Path
+import threading
+from audio.audio_player_delegate_sdl2 import AudioPlayerDelegateSdl2
+from controller.key_watcher import KeyWatcher
+from controller.key_watcher_controller import KeyWatcherController
+from devices.miyoo.miyoo_games_file_parser import MiyooGamesFileParser
+from devices.miyoo_trim_common import MiyooTrimCommon
+from devices.miyoo_trim_mapping_provider import MiyooTrimKeyMappingProvider
+from devices.std_in_based_send_event_binary_helper import StdInBasedSendEventBinaryHelper
+from devices.trimui.trim_ui_device import TrimUIDevice
+from devices.utils.file_watcher import FileWatcher
+from utils import throttle
+
+from utils.config_copier import ConfigCopier
+from utils.ffmpeg_image_utils import FfmpegImageUtils
+
+class TrimUIBrick(TrimUIDevice):
+    
+    TRIMUI_STOCK_CONFIG_LOCATION = "/mnt/UDISK/system.json"
+
+    def __init__(self, device_name, main_ui_mode):
+        self.device_name = device_name
+        self.audio_player = AudioPlayerDelegateSdl2()
+        script_dir = Path(__file__).resolve().parent
+        source = script_dir / 'brick-system.json'
+        self._load_system_config("/mnt/SDCARD/Saves/trim-ui-brick-system.json", source)
+
+        if(main_ui_mode):
+            trim_stock_json_file = script_dir / 'stock/brick.json'
+            ConfigCopier.ensure_config(TrimUIBrick.TRIMUI_STOCK_CONFIG_LOCATION, trim_stock_json_file)
+
+
+            self.miyoo_games_file_parser = MiyooGamesFileParser()        
+            threading.Thread(target=self.startup_init, daemon=True).start()
+            self.config_watcher_thread, self.config_watcher_thread_stop_event = FileWatcher().start_file_watcher(
+                "/mnt/SDCARD/Saves/trim-ui-brick-system.json", self.on_system_config_changed, interval=0.2, repeat_trigger_for_mtime_granularity_issues=True)
+            from controller.controller import Controller
+            self.volume_key_watcher = KeyWatcher(TrimUIDevice.pad_event_path())
+            Controller.add_button_watcher(self.volume_key_watcher.poll_keyboard)
+            volume_key_polling_thread = threading.Thread(target=self.volume_key_watcher.poll_keyboard, daemon=True)
+            volume_key_polling_thread.start()
+            self.power_key_watcher = KeyWatcher("/dev/input/event1")
+            power_key_polling_thread = threading.Thread(target=self.power_key_watcher.poll_keyboard, daemon=True)
+            power_key_polling_thread.start()
+                
+        super().__init__()
+            
+
+    def startup_init(self, include_wifi=True):
+        self._set_lumination_to_config()
+        self._set_contrast_to_config()
+        self._set_saturation_to_config()
+        self._set_brightness_to_config()
+        self._set_hue_to_config()
+            
+    #Untested
+    @throttle.limit_refresh(5)
+    def is_hdmi_connected(self):
+        return False
+
+    def should_scale_screen(self):
+        return self.is_hdmi_connected()
+
+
+    def screen_width(self):
+        return 1024
+
+
+    def screen_height(self):
+        return 768
+    
+    
+
+    def output_screen_width(self):
+        return 1920
+
+
+    def output_screen_height(self):
+        return 1080
+
+    def get_scale_factor(self):
+        if(self.is_hdmi_connected()):
+            return 2.25
+        else:
+            return 1
+        
+    def supports_brightness_calibration(self):
+        return True
+
+    def supports_contrast_calibration(self):
+        return True
+
+    def supports_saturation_calibration(self):
+        return True
+
+    def supports_hue_calibration(self):
+        return True
+
+    def get_image_utils(self):
+        return FfmpegImageUtils()
+
+
+    def get_controller_interface(self):
+        return KeyWatcherController(event_path=TrimUIDevice.pad_event_path(), mapping_provider=MiyooTrimKeyMappingProvider(), event_format='llHHi')
+    
+    def get_device_name(self):
+        return self.device_name
+
+    def get_device_names(self):
+        names = [self.device_name, "TRIMUI_A133P"]
+        return names
+    
+    def set_theme(self, theme_path: str):
+        MiyooTrimCommon.set_theme(TrimUIBrick.TRIMUI_STOCK_CONFIG_LOCATION, theme_path)
+
+    def get_audio_system(self):
+        return self.audio_player
+    
+    def get_core_name_overrides(self, core_name):
+        return [core_name, core_name+"-64"]    
+    
+    def might_require_surface_format_conversion(self):
+        return True # RA save state images don't seem to load w/o conversion?
+    
+        
+    def volume_up(self):
+        StdInBasedSendEventBinaryHelper.send_key_down_and_up(TrimUIDevice.pad_event_path(),115)
+
+    def volume_down(self):
+        StdInBasedSendEventBinaryHelper.send_key_down_and_up(TrimUIDevice.pad_event_path(),114)

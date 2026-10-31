@@ -1,0 +1,324 @@
+
+
+import os
+import random
+import subprocess
+from controller.controller_inputs import ControllerInput
+from devices.device import Device
+from display.display import Display
+from display.on_screen_keyboard import OnScreenKeyboard
+from games.utils.box_art_resizer import BoxArtResizer
+from menus.games.collections.collections_management_menu import CollectionsManagementMenu
+from menus.games.utils.cheevos_cache_manager import CheevosCacheManager
+from menus.games.utils import cheevos_progress
+from menus.games.utils.custom_gameswitcher_list_manager import CustomGameSwitcherListManager
+from menus.games.utils.favorites_manager import FavoritesManager
+from menus.games.utils.recents_manager import RecentsManager
+from menus.games.utils.rom_file_name_utils import RomFileNameUtils
+from menus.games.utils.rom_info import RomInfo
+from menus.games.utils.rom_select_options_builder import get_rom_select_options_builder
+from menus.settings.list_of_options_selection_menu import ListOfOptionsSelectionMenu
+from themes.theme import Theme
+from utils.boxart.box_art_scraper import BoxArtScraper
+from utils.cfw_system_config import CfwSystemConfig
+from utils.logger import PyUiLogger
+from utils.py_ui_config import PyUiConfig
+from views.grid_or_list_entry import GridOrListEntry
+from views.view_creator import ViewCreator
+from views.view_type import ViewType
+
+
+from menus.language.language import Language
+
+class GameSelectMenuPopup:
+    def __init__(self):
+        pass
+
+    def add_favorite(self, rom_info : RomInfo, input_value):
+        FavoritesManager.add_favorite(rom_info)
+
+    def remove_favorite(self, rom_info : RomInfo, input_value):
+        FavoritesManager.remove_favorite(rom_info)
+        
+    def collections_management_view(self, rom_info : RomInfo, input_value):
+        CollectionsManagementMenu(rom_info).show_menu()
+
+
+    def launch_random_game(self, input_value, rom_list):
+        if ControllerInput.A != input_value:
+            return
+
+        # Filter out directories
+        roms_only = [rom for rom in rom_list if not os.path.isdir(rom.get_value().rom_file_path)]
+
+        if not roms_only:
+            Display.display_message(Language.label("noValidRomsToLaunch", "No valid ROMs available to launch."), duration_ms=2000)
+            return
+
+        selected_rom = random.choice(roms_only)
+        Device.get_device().run_game(selected_rom.get_value())
+
+    def execute_game_search(self, game_system, input_value):
+        from menus.games.search_games_for_system_menu import SearchGamesForSystemMenu
+        search_txt = OnScreenKeyboard().get_input(Language.game_search())
+        if(search_txt is not None):
+            return SearchGamesForSystemMenu(game_system, search_txt.upper()).run_rom_selection()
+
+    def toggle_view(self):
+        CYCLE_VIEWS = [
+            ViewType.TEXT_ONLY,
+            ViewType.TEXT_AND_IMAGE,
+            ViewType.GRID,
+            ViewType.ICON_AND_DESC,
+            ViewType.CAROUSEL,
+        ]
+        current = Theme.get_game_selection_view_type()
+        idx = CYCLE_VIEWS.index(current) if current in CYCLE_VIEWS else -1
+        next_view = CYCLE_VIEWS[(idx + 1) % len(CYCLE_VIEWS)]
+        Theme.set_game_selection_view_type(next_view)
+
+    def cache_for_offline_cheevos(self, input_value, rom_info : RomInfo):
+        Display.display_message(Language.label("cachingCheevos", "Caching achievements..."))
+        try:
+            result = subprocess.run(
+                [PyUiConfig.get_cache_cheevos_cmd(), rom_info.rom_file_path],
+                capture_output=True, text=True, timeout=180)
+            lines = (result.stdout or result.stderr).strip().splitlines()
+            message = lines[-1] if lines else "No response"
+            if result.returncode == 0:
+                CheevosCacheManager.refresh()
+        except Exception as e:
+            PyUiLogger.get_logger().error(f"cache-rom failed: {e}")
+            message = "Failed"
+        Display.display_message(message, duration_ms=2500)
+
+    def download_boxart(self, input, rom_info : RomInfo):
+        if (ControllerInput.A == input):
+            rom_select_options_builder = get_rom_select_options_builder()
+
+            rom_image_list = []
+            img_path = rom_select_options_builder.get_default_image_path(rom_info.game_system, rom_info.rom_file_path)
+            name_without_ext = RomFileNameUtils.get_rom_name_without_extensions(
+                rom_info.game_system,
+                rom_info.rom_file_path
+            )
+            rom_image_list.append((name_without_ext, img_path))
+            
+            BoxArtScraper().download_boxart_batch(rom_info.game_system.system_name, rom_image_list)
+
+    def find_index_for_boxart(self, boxart_name, boxart_list):
+        name_lower = boxart_name.lower()
+
+        best_index = 0
+        best_prefix_len = 0
+
+        for i, item in enumerate(boxart_list):
+            item_lower = item.lower()
+
+            prefix_len = 0
+            for a, b in zip(name_lower, item_lower):
+                if a != b:
+                    break
+                prefix_len += 1
+
+            if prefix_len > best_prefix_len:
+                best_prefix_len = prefix_len
+                best_index = i
+
+            #List isnt sorted case insenstively, if we change that
+            #then we can early exit, not a big deal though
+
+        return best_index
+
+    def select_specific_boxart(self, input, rom_info : RomInfo):
+        if (ControllerInput.A == input):
+            Display.display_message(Language.label("loadingBoxartList", "Loading boxart list..."))
+            scraper = BoxArtScraper()
+            if(not scraper.check_wifi()):
+                return
+
+            image_list = scraper.get_image_list_for_system(rom_info.game_system.system_name)
+            if(image_list is not None):
+                name_without_ext = RomFileNameUtils.get_rom_name_without_extensions(
+                    rom_info.game_system,
+                    rom_info.rom_file_path
+                )
+
+                start_index = self.find_index_for_boxart(name_without_ext, image_list)
+                boxart_download = ListOfOptionsSelectionMenu().get_selected_option_index(image_list, Language.label("selectBoxArtTitle", "Select Box Art"), start_index)
+
+                if(boxart_download is not None):
+                    box_art = image_list[boxart_download]
+                    img_path = get_rom_select_options_builder().get_default_image_path(rom_info.game_system, rom_info.rom_file_path)
+                    existing_image = get_rom_select_options_builder().get_image_path(rom_info)
+                    if(existing_image is not None and os.path.exists(existing_image)):
+                        os.remove(existing_image)
+                        Display.clear_image_cache()
+                    PyUiLogger().get_logger().info(f"Downloading {box_art} to {img_path}")
+                    Display.display_message(
+                        Language.label("downloadingBoxartTo", "Downloading {boxart} to {path}")
+                        .replace("{boxart}", box_art)
+                        .replace("{path}", img_path)
+                    )
+                    scraper.download_remote_image_for_system(rom_info.game_system.system_name, box_art,img_path)
+                    BoxArtResizer.patch_boxart_list([img_path])
+
+    def get_game_options(self, rom_info : RomInfo, additional_popup_options = [], rom_list= [], use_full_text = True):
+        popup_options = []
+        popup_options.extend(additional_popup_options)
+        rom_name = os.path.basename(rom_info.rom_file_path)
+        
+        if(PyUiConfig.get_gameswitcher_path() is not None 
+           and Device.get_device().get_system_config().use_custom_gameswitcher_path()):
+            if(CustomGameSwitcherListManager.contains_game(rom_info)):
+                popup_options.append(GridOrListEntry(
+                    primary_text=Language.remove_gameswitcher_game() if use_full_text else "+/- GameSwitcher",
+                    image_path=Theme.settings(),
+                    image_path_selected=Theme.settings_selected(),
+                    description=None,
+                    icon=None,
+                    value=lambda input_value, rom_info=rom_info: CustomGameSwitcherListManager.remove_game(rom_info)
+                ))
+            else:
+                popup_options.append(GridOrListEntry(
+                    primary_text=Language.add_gameswitcher_game() if use_full_text else "+/- GameSwitcher",
+                    image_path=Theme.settings(),
+                    image_path_selected=Theme.settings_selected(),
+                    description=None,
+                    icon=None,
+                    value=lambda input_value, rom_info=rom_info: CustomGameSwitcherListManager.add_game(rom_info)
+                ))
+
+
+        if(FavoritesManager.is_favorite(rom_info)):        
+            popup_options.append(GridOrListEntry(
+                primary_text=Language.remove_favorite() if use_full_text else "+/- Favorite",
+                image_path=Theme.settings(),
+                image_path_selected=Theme.settings_selected(),
+                description=None,
+                icon=None,
+                value=lambda input_value, rom_info=rom_info: self.remove_favorite(rom_info, input_value)
+            ))
+        else:
+            popup_options.append(GridOrListEntry(
+                primary_text=Language.add_favorite() if use_full_text else "+/- Favorite",
+                image_path=Theme.settings(),
+                image_path_selected=Theme.settings_selected(),
+                description=None,
+                icon=None,
+                value=lambda input_value, rom_info=rom_info: self.add_favorite(rom_info, input_value)
+            ))
+            
+        
+        popup_options.append(GridOrListEntry(
+            primary_text=Language.add_remove_collection() if use_full_text else "+/- Collection",
+            image_path=Theme.settings(),
+            image_path_selected=Theme.settings_selected(),
+            description=None,
+            icon=None,
+            value=lambda input_value, rom_info=rom_info: self.collections_management_view(rom_info, input_value)
+        ))
+
+        if(RecentsManager.is_recent(rom_info)):        
+            popup_options.append(GridOrListEntry(
+                primary_text=Language.remove_recents() if use_full_text else "- Recents",
+                image_path=Theme.settings(),
+                image_path_selected=Theme.settings_selected(),
+                description=None,
+                icon=None,
+                value=lambda input_value, rom_info=rom_info: RecentsManager.remove_game(rom_info)
+            ))
+
+               
+        if(not Device.get_device().get_system_config().simple_mode_enabled()):               
+            popup_options.append(GridOrListEntry(
+                primary_text=Language.download_boxart(),
+                image_path=None,
+                image_path_selected=None,
+                description=None,
+                icon=None,
+                value=lambda input_value, rom_info=rom_info: self.download_boxart(input_value, rom_info)
+            ))
+            popup_options.append(GridOrListEntry(
+                primary_text=Language.select_boxart(),
+                image_path=None,
+                image_path_selected=None,
+                description=None,
+                icon=None,
+                value=lambda input_value, rom_info=rom_info: self.select_specific_boxart(input_value, rom_info)
+            ))
+
+        if not os.path.isdir(rom_info.rom_file_path) and cheevos_progress.available():
+            popup_options.append(GridOrListEntry(
+                primary_text=Language.label("viewAchievementProgress", "View achievement progress"),
+                value=lambda input_value, rom_info=rom_info: (
+                    cheevos_progress.show_progress(rom_info) if input_value == ControllerInput.A else None
+                )
+            ))
+
+        if(PyUiConfig.get_cache_cheevos_cmd()
+           and "True" == CfwSystemConfig.get_selected_value("RetroAchievements Settings", "enableOfflineProxy")):
+            popup_options.append(GridOrListEntry(
+                primary_text=Language.label("cacheCheevos", "Cache Achievements") if use_full_text else "Cache Cheevos",
+                image_path=Theme.settings(),
+                image_path_selected=Theme.settings_selected(),
+                description=None,
+                icon=None,
+                value=lambda input_value, rom_info=rom_info: self.cache_for_offline_cheevos(input_value, rom_info)
+            ))
+
+        popup_options.append(GridOrListEntry(
+                primary_text=Language.launch_random_game(),
+                image_path=Theme.settings(),
+                image_path_selected=Theme.settings_selected(),
+                description=None,
+                icon=None,
+                value=lambda input_value, rom_list=rom_list: self.launch_random_game(input_value, rom_list)
+        ))
+
+        return popup_options
+
+
+    def run_game_select_popup_menu(self, rom_info : RomInfo, additional_popup_options = [], rom_list= []):
+        popup_options = []
+        popup_options.append(GridOrListEntry(
+            primary_text=Language.system_game_search().replace("$system", rom_info.game_system.display_name),
+            image_path=Theme.settings(),
+            image_path_selected=Theme.settings_selected(),
+            description=None,
+            icon=None,
+            value=lambda input_value, game_system=rom_info.game_system: self.execute_game_search(game_system, input_value)
+        ))
+
+
+        popup_options.extend(self.get_game_options(rom_info, additional_popup_options, rom_list, use_full_text=False)) 
+
+        if(not Device.get_device().get_system_config().simple_mode_enabled()):
+            popup_options.append(GridOrListEntry(
+                primary_text=Language.label("toggleView", "Toggle View"),
+                image_path=Theme.settings(),
+                image_path_selected=Theme.settings_selected(),
+                description=None,
+                icon=None,
+                value=lambda input_value: self.toggle_view()
+            ))
+
+        popup_view = ViewCreator.create_view(
+            view_type=ViewType.POPUP,
+            options=popup_options,
+            top_bar_text=Language.system_menu_sub_options().replace("$system", rom_info.game_system.display_name),
+            selected_index=0,
+            cols=Theme.popup_menu_cols(),
+            rows=Theme.popup_menu_rows())
+
+
+        while (popup_selection := popup_view.get_selection(select_controller_inputs=[ControllerInput.A, ControllerInput.MENU])):
+            if(popup_selection.get_input() is not None):
+                PyUiLogger.get_logger().info(f"Received {popup_selection.get_input()}")
+                break
+        
+        if(popup_selection.get_input() is not None):
+            popup_view.view_finished()
+
+        if(ControllerInput.A == popup_selection.get_input()): 
+            popup_selection.get_selection().get_value()(popup_selection.get_input())

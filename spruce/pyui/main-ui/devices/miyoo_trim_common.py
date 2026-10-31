@@ -1,0 +1,222 @@
+
+import os
+import re
+import subprocess
+from apps.miyoo.miyoo_app_config import MiyooAppConfig
+from devices.device import Device
+from display.display import Display
+from games.utils.game_system import GameSystem
+from menus.app.app_utils import AppUtils
+from menus.games.file_based_game_system_config import FileBasedGameSystemConfig
+from menus.games.utils.rom_info import RomInfo
+from themes.theme import Theme
+from utils.logger import PyUiLogger
+
+
+class MiyooTrimCommon():
+        
+    @staticmethod
+    def convert_game_path_to_miyoo_path(original_path, remap_sdcard_path):
+        # Define the base directories we want to convert
+        # (currently do not update/map secondary sdcards)
+        base_dirs = {
+            "/mnt/SDCARD/": "/media/sdcard0/"
+        }
+        for base_dir, sdcard_mount in base_dirs.items():
+            # Check if the original path starts with the base directory
+            if original_path.startswith(base_dir):
+                # Extract the subdirectory after Roms/
+                subdirectory = original_path[len(base_dir+"/Roms"):].split(os.sep, 1)[0]
+
+                # Construct the new path using the desired format
+                new_path = original_path.replace(f"Roms{os.sep}{subdirectory}", f"Emu{os.sep}{subdirectory}{os.sep}..{os.sep}..{os.sep}Roms{os.sep}{subdirectory}")
+                if(remap_sdcard_path):
+                    new_path = new_path.replace(base_dir, sdcard_mount)
+
+                PyUiLogger.get_logger().info(f"Converted {original_path} to {new_path}")
+                return new_path        
+            
+        # If no matching base directory found
+        PyUiLogger.get_logger().error(f"Unable to convert {original_path} to miyoo path")
+        return original_path
+
+
+                
+    @staticmethod
+    def write_cmd_to_run(command):
+        with open('/tmp/cmd_to_run.sh', 'w') as file:
+            file.write(command)
+            PyUiLogger.get_logger().info(f"Writing cmd to run: {command}")
+
+
+    @staticmethod
+    def delete_cmd_to_run():
+        try:
+            os.remove('/tmp/cmd_to_run.sh')
+        except FileNotFoundError:
+            pass  # File doesn't exist, no action needed
+        except Exception as e:
+            PyUiLogger.get_logger().error(f"Failed to delete file: {e}")
+
+    @staticmethod
+    def run_game(device, rom_info: RomInfo, remap_sdcard_path = True, run_prefix ="") -> subprocess.Popen:
+        Theme.check_and_create_ra_assets()
+        launch_path = os.path.join(rom_info.game_system.game_system_config.get_emu_folder(),rom_info.game_system.game_system_config.get_launch())
+        
+        #file_path = /mnt/SDCARD/Roms/FAKE08/Alpine Alpaca.p8
+        #miyoo maps it to /media/sdcard0/Emu/FAKE08/../../Roms/FAKE08/Alpine Alpaca.p8
+        # Disable path mapping for now -- probably never re-enable
+        #miyoo_app_path = MiyooTrimCommon.convert_game_path_to_miyoo_path(rom_info.rom_file_path, remap_sdcard_path)
+        miyoo_app_path = rom_info.rom_file_path
+        escaped_path = re.sub(r'([$`"\\])', r'\\\1', miyoo_app_path)        
+        MiyooTrimCommon.write_cmd_to_run(f'''chmod a+x "{launch_path}";{run_prefix}"{launch_path}" "{escaped_path}"''')
+        Device.get_device().fix_sleep_sound_bug()
+
+        Display.deinit_display()
+        Device.get_device().exit_pyui()
+        #try:
+        #    return subprocess.Popen([launch_path,rom_info.rom_file_path], stdin=subprocess.DEVNULL,
+        #         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        #except Exception as e:
+        #    PyUiLogger.get_logger().error(f"Failed to launch game {rom_info.rom_file_path}: {e}")
+        #    return None
+        
+    @staticmethod
+    def run_cmd(device, args, dir = None, is_power_cmd = False):
+        if not is_power_cmd:
+            Device.get_device().fix_sleep_sound_bug()
+        PyUiLogger.get_logger().debug(f"About to launch app {args} from dir {dir}")
+        subprocess.run(args, cwd = dir)
+
+    @staticmethod
+    def run_app(device, folder,launch, run_prefix =""):
+        Device.get_device().fix_sleep_sound_bug()
+        #cd /mnt/SDCARD/App/Commander_Italic; chmod a+x ./launch.sh; LD_PRELOAD=/mnt/SDCARD/miyoo/app/../lib/libpadsp.so   ./launch.sh 
+        if '"' in launch:
+            MiyooTrimCommon.write_cmd_to_run(f'cd "{folder}"; {run_prefix}{launch}''')
+        else:
+            MiyooTrimCommon.write_cmd_to_run(f'cd "{folder}"; chmod a+x "{launch}"; {run_prefix}"{launch}"''')
+        Device.get_device().exit_pyui()
+
+    def should_scale_screen(self):
+        return self.is_hdmi_connected()
+    
+    @staticmethod
+    def run_analog_stick_calibration(device, stick_name, joystick, file_path, leftOrRight):
+        from display.display import Display
+        
+        Display.clear("Stick Calibration")
+        Display.display_message(f"Rotate {stick_name}")
+        Display.present()
+       
+        rotate_stats = joystick.sample_axes_stats()
+        
+        Display.clear("Stick Calibration")
+        Display.display_message(f"Leave {stick_name} Still")
+        Display.present()
+
+        centered_stats = joystick.sample_axes_stats()
+        PyUiLogger.get_logger().info(
+            "rotate_stats keys: %s",
+            list(rotate_stats.keys())
+        )
+
+        PyUiLogger.get_logger().info(
+            "centered_stats keys: %s",
+            list(centered_stats.keys())
+        )        
+        x_min = f"x_min={round(rotate_stats['axisX'+leftOrRight]['min'])}"
+        x_max = f"x_max={round(rotate_stats['axisX'+leftOrRight]['max'])}"
+        x_zero = f"x_zero={round(centered_stats['axisX'+leftOrRight]['avg'])}"
+
+        y_min = f"y_min={round(rotate_stats['axisY'+leftOrRight]['min'])}"
+        y_max = f"y_max={round(rotate_stats['axisY'+leftOrRight]['max'])}"
+        y_zero = f"y_zero={round(centered_stats['axisY'+leftOrRight]['avg'])}" 
+
+        # Log each
+        PyUiLogger.get_logger().info(x_min)
+        PyUiLogger.get_logger().info(x_max)
+        PyUiLogger.get_logger().info(y_min)
+        PyUiLogger.get_logger().info(y_max)
+        PyUiLogger.get_logger().info(x_zero)
+        PyUiLogger.get_logger().info(y_zero)
+        with open(file_path, 'w') as f:
+            # Write to file
+            f.write(x_min + "\n")
+            f.write(x_max + "\n")
+            f.write(y_min + "\n")
+            f.write(y_max + "\n")
+            f.write(x_zero + "\n")
+            f.write(y_zero + "\n")
+        PyUiLogger.get_logger().info("Calibration Complete")
+
+    @staticmethod
+    def set_theme(json_path, theme_path: str):
+        try:
+            with open(json_path, "r", encoding="utf-8") as f:
+                content = f.read()
+
+            # Regex to match: "theme": "anything"
+            theme_pattern = r'("theme"\s*:\s*")[^"]*(")'
+
+            if re.search(theme_pattern, content):
+                # Replace existing theme value
+                content = re.sub(
+                    theme_pattern,
+                    rf'\1{theme_path}\2',
+                    content
+                )
+            else:
+                # Insert theme before the first closing brace
+                insert_pattern = r'\}'
+                replacement = f'    "theme": "{theme_path}",\n}}'
+                content = re.sub(insert_pattern, replacement, content, count=1)
+
+            with open(json_path, "w", encoding="utf-8") as f:
+                f.write(content)
+
+        except Exception as e:
+            PyUiLogger.get_logger().error(
+                f"Could not set theme in {json_path} : {e}"
+            )
+
+
+    @staticmethod
+    def get_image_for_activity(activity):
+        # Only the activity tracker needs these; importing them loads the game menus.
+        from menus.games.game_system_select_menu import GameSystemSelectMenu
+        from menus.games.utils.rom_select_options_builder import get_rom_select_options_builder
+
+        # TODO this is assuming all defaults
+        # We can create a mapping the first time this is called from config files
+        # to account for this in the future
+        if(activity.startswith("App")):
+            config_path = "/mnt/SDCARD/" + activity.replace("launch.sh", "config.json")
+            app = MiyooAppConfig(config_path)
+            return AppUtils.get_icon(app.get_folder(),app.get_icon())
+        elif(activity.startswith("Rom")):
+            # TODO handle multiple sdcard
+            img = get_rom_select_options_builder().get_image_path(get_rom_select_options_builder().build_fake_game_system("/mnt/SDCARD/"+activity))
+            if(img is None):
+                # Should only do miyoo flip but can handle later
+                return get_rom_select_options_builder().get_image_path(get_rom_select_options_builder().build_fake_game_system("/mnt/sdcard1/"+activity))
+            else:
+                return img
+        else: # it's a console ?
+            try:
+                game_system_config = FileBasedGameSystemConfig(activity)
+                game_system = None
+                if(game_system_config is not None):
+                    display_name = game_system_config.get_label()
+                    game_system = GameSystem([activity],display_name, game_system_config)
+
+                if(game_system is not None):
+                    _, image_path_selected = GameSystemSelectMenu.get_images(game_system)
+                    PyUiLogger.get_logger().info(f"activity is {activity}, display name is {game_system.display_name.lower()}, icon is {image_path_selected}")
+                    return image_path_selected
+                else:
+                    PyUiLogger.get_logger().warning(f"Unrecognized activity : {activity}")
+                    return None
+            except Exception as e:
+                PyUiLogger.get_logger().warning("Error getting game system config (likely mapped name, TODO): ", exc_info=True)
+                return None

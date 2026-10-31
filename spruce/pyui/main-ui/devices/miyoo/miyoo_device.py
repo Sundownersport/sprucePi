@@ -1,0 +1,217 @@
+import subprocess
+import time
+from apps.miyoo.miyoo_app_finder import MiyooAppFinder
+from controller.controller_inputs import ControllerInput
+from devices.device_common import DeviceCommon
+from devices.miyoo.trim_ui_joystick import TrimUIJoystick
+from devices.miyoo_trim_common import MiyooTrimCommon
+from devices.utils.process_runner import ProcessRunner
+from games.utils.device_specific.miyoo_trim_game_system_utils import MiyooTrimGameSystemUtils
+from games.utils.game_entry import GameEntry
+from menus.games.utils.rom_info import RomInfo
+from menus.settings.button_remapper import ButtonRemapper
+import sdl2
+from utils.logger import PyUiLogger
+
+from devices.device_common import DeviceCommon
+from utils.py_ui_config import PyUiConfig
+
+
+class MiyooDevice(DeviceCommon):
+    OUTPUT_MIXER = 2
+    SOUND_DISABLED = 0
+
+    def __init__(self):
+        self.NOMAP_KEYS = [57, 29, 56, 42, 28, 97, 1, 15, 20, 14, 18, 103, 108, 105, 106]
+        self.button_remapper = ButtonRemapper(self.system_config)
+        self.game_utils = MiyooTrimGameSystemUtils()
+        super().__init__()
+
+    def clear_framebuffer(self):
+        pass
+    
+    def capture_framebuffer(self):
+        pass
+
+    def restore_framebuffer(self):
+        pass
+
+    def sleep(self):
+        with open("/sys/power/mem_sleep", "w") as f:
+            f.write("deep")
+        with open("/sys/power/state", "w") as f:
+            f.write("mem")  
+
+    def should_scale_screen(self):
+        return self.is_hdmi_connected()
+
+
+    def run_cmd(self, args, dir = None, is_power_cmd = False):
+        MiyooTrimCommon.run_cmd(self, args, dir,is_power_cmd)
+
+    def run_app(self, folder,launch):
+        MiyooTrimCommon.run_app(self, folder,launch)
+
+    #TODO untested
+    def map_analog_axis(self,sdl_input, value, threshold=16000):
+        if sdl_input == sdl2.SDL_CONTROLLER_AXIS_LEFTX:
+            if value < -threshold:
+                return ControllerInput.LEFT_STICK_LEFT
+            elif value > threshold:
+                return ControllerInput.LEFT_STICK_RIGHT
+        elif sdl_input == sdl2.SDL_CONTROLLER_AXIS_LEFTY:
+            if value < -threshold:
+                return ControllerInput.LEFT_STICK_UP
+            elif value > threshold:
+                return ControllerInput.LEFT_STICK_DOWN
+        elif sdl_input == sdl2.SDL_CONTROLLER_AXIS_RIGHTX:
+            if value < -threshold:
+                return ControllerInput.RIGHT_STICK_LEFT
+            elif value > threshold:
+                return ControllerInput.RIGHT_STICK_RIGHT
+        elif sdl_input == sdl2.SDL_CONTROLLER_AXIS_RIGHTY:
+            if value < -threshold:
+                return ControllerInput.RIGHT_STICK_UP
+            elif value > threshold:
+                return ControllerInput.RIGHT_STICK_DOWN
+        return None
+    
+    def map_digital_input(self, sdl_input):
+        mapping = self.sdl_button_to_input.get(sdl_input, ControllerInput.UNKNOWN)
+        if(ControllerInput.UNKNOWN == mapping):
+            PyUiLogger.get_logger().error(f"Unknown input {sdl_input}")
+        return mapping
+
+    def map_analog_input(self, sdl_axis, sdl_value):
+        if sdl_axis == 5 and sdl_value == 32767:
+            return ControllerInput.R2
+        elif sdl_axis == 4 and sdl_value == 32767:
+            return ControllerInput.L2
+        else:
+            # Update min/max range
+            if sdl_axis not in self.unknown_axis_ranges:
+                self.unknown_axis_ranges[sdl_axis] = (sdl_value, sdl_value)
+            else:
+                current_min, current_max = self.unknown_axis_ranges[sdl_axis]
+                self.unknown_axis_ranges[sdl_axis] = (
+                    min(current_min, sdl_value),
+                    max(current_max, sdl_value)
+                )
+
+            # Update sum/count for average
+            if sdl_axis not in self.unknown_axis_stats:
+                self.unknown_axis_stats[sdl_axis] = (sdl_value, 1)
+            else:
+                total, count = self.unknown_axis_stats[sdl_axis]
+                self.unknown_axis_stats[sdl_axis] = (total + sdl_value, count + 1)
+
+            min_val, max_val = self.unknown_axis_ranges[sdl_axis]
+            total, count = self.unknown_axis_stats[sdl_axis]
+            avg_val = total / count if count > 0 else 0
+
+            axis_name = self.sdl_axis_names.get(sdl_axis, "UNKNOWN_AXIS")
+            #PyUiLogger.get_logger().error(
+            #    f"Received unknown analog input axis = {sdl_axis} ({axis_name}), value = {sdl_value} "
+            #    f"(range: min = {min_val}, max = {max_val}, avg = {avg_val:.2f})"
+            #)
+            return None
+
+    def prompt_power_down(self):
+        DeviceCommon.prompt_power_down(self)
+
+    def special_input(self, controller_input, length_in_seconds):
+        if(PyUiConfig.enable_button_watchers()):
+            if(ControllerInput.POWER_BUTTON == controller_input):
+                if(length_in_seconds < 1):
+                    self.sleep()
+                else:
+                    self.prompt_power_down()
+
+    def map_key(self, key_code):
+        if(116 == key_code):
+            return ControllerInput.POWER_BUTTON
+        if(115 == key_code):
+            return ControllerInput.VOLUME_UP
+        elif(114 == key_code):
+            return ControllerInput.VOLUME_DOWN
+        else:
+            # Minis have all key events in the same path (/dev/input/event0) which
+            # means logging every key press that wasn't volume/power without this
+            # check, codes taken from miyoo_mini_common.py
+            if key_code not in self.NOMAP_KEYS:
+                PyUiLogger.get_logger().debug(f"Unrecognized keycode {key_code}")
+
+            return None
+
+    def is_wifi_enabled(self):
+        return self.system_config.is_wifi_enabled()
+
+        
+    def get_app_finder(self):
+        return MiyooAppFinder()
+    
+    def parse_favorites(self) -> list[GameEntry]:
+        return self.miyoo_games_file_parser.parse_favorites()
+    
+    def parse_recents(self) -> list[GameEntry]:
+        return self.miyoo_games_file_parser.parse_recents()
+
+    def perform_startup_tasks(self):
+        pass
+
+    def get_favorites_path(self):
+        return "/mnt/SDCARD/Saves/pyui-favorites.json"
+    
+    def get_recents_path(self):
+        return "/mnt/SDCARD/Saves/pyui-recents.json"
+        
+    def get_apps_config_path(self):
+        return "/mnt/SDCARD/Saves/pyui-apps.json"
+
+    def get_collections_path(self):
+        return "/mnt/SDCARD/Collections/"
+    
+    def launch_stock_os_menu(self):
+        self.run_cmd("/usr/miyoo/bin/runmiyoo-original.sh")
+
+    def get_state_path(self):
+        return "/mnt/SDCARD/Saves/pyui-state.json"
+
+    def calibrate_sticks(self):
+        from controller.controller import Controller
+        sdl2.SDL_QuitSubSystem(sdl2.SDL_INIT_GAMECONTROLLER)
+        ProcessRunner.run(["killall","-9","miyoo_inputd"])
+        time.sleep(0.5)
+        joystick = TrimUIJoystick()
+        joystick.open()
+        MiyooTrimCommon.run_analog_stick_calibration(self,"Left stick",joystick,"/userdata/joypad.config","L")
+        MiyooTrimCommon.run_analog_stick_calibration(self,"Right stick",joystick,"/userdata/joypad_right.config","R")
+        subprocess.Popen(["/usr/miyoo/bin/miyoo_inputd"],
+                                stdin=subprocess.DEVNULL,
+                                stdout=subprocess.DEVNULL,
+                                stderr=subprocess.DEVNULL)
+        Controller.re_init_controller()
+    
+    def remap_buttons(self):
+        self.button_remapper.remap_buttons()
+ 
+    def supports_wifi(self):
+        return True
+    
+    def get_game_system_utils(self):
+        return self.game_utils
+    
+    def get_roms_dir(self):
+        return "/mnt/SDCARD/Roms/"
+    
+    def get_save_state_image(self, rom_info: RomInfo):
+        return self.get_game_system_utils().get_save_state_image(rom_info)
+    
+    def get_device_specific_about_info_entries(self):
+        return []
+
+    def check_for_button_remap(self, input):
+        return self.button_remapper.get_mappping(input)
+
+    def get_image_for_activity(self, activity):
+        return MiyooTrimCommon.get_image_for_activity(activity)

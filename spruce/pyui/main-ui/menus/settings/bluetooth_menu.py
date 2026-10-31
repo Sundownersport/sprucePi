@@ -1,0 +1,159 @@
+
+from controller.controller import Controller
+from controller.controller_inputs import ControllerInput
+from devices.device import Device
+from display.display import Display
+from utils.logger import PyUiLogger
+from views.grid_or_list_entry import GridOrListEntry
+from views.selection import Selection
+from views.view_creator import ViewCreator
+from views.view_type import ViewType
+
+
+from menus.language.language import Language
+
+class BluetoothMenu:
+    def __init__(self):
+        self.bluetooth_scanner = Device.get_device().get_bluetooth_scanner()
+
+    def bluetooth_adjust(self):
+        if Device.get_device().is_bluetooth_enabled():
+            Device.get_device().disable_bluetooth()
+        else:
+            Device.get_device().enable_bluetooth()
+
+    def toggle_pairing_device(self, device):
+        if self.is_connected(device):
+            self.disconnect_device(device)
+        else:
+            self.connect_device(device)
+            Controller.new_bt_device_paired()
+
+    def is_connected(self, device) -> bool:
+        return self.bluetooth_scanner.is_connected(device)
+
+    def disconnect_device(self, device):
+        ok, output = self.bluetooth_scanner.disconnect(device)
+        PyUiLogger.get_logger().info(f"disconnect output: {output}")
+        if ok:
+            Display.display_message(
+                Language.label("bluetoothDisconnected", "Bluetooth device {name} disconnected").replace("{name}", device.name),
+                duration_ms=3000,
+            )
+        else:
+            Display.display_message(
+                Language.label("bluetoothDisconnectFailed", "Bluetooth device {name} failed to disconnect. {output}")
+                .replace("{name}", device.name)
+                .replace("{output}", output or ""),
+                duration_ms=5000,
+            )
+        Device.get_device().refresh_audio_route()
+
+    def forget_device(self, device):
+        ok, output = self.bluetooth_scanner.forget(device)
+        PyUiLogger.get_logger().info(f"forget output: {output}")
+        if ok:
+            Display.display_message(
+                Language.label("bluetoothForgotten", "Bluetooth device {name} forgotten").replace("{name}", device.name),
+                duration_ms=3000,
+            )
+        else:
+            Display.display_message(
+                Language.label("bluetoothForgetFailed", "Bluetooth device {name} could not be forgotten. {output}")
+                .replace("{name}", device.name)
+                .replace("{output}", output or ""),
+                duration_ms=5000,
+            )
+        self.bluetooth_scanner.refresh_devices()
+        Device.get_device().refresh_audio_route()
+
+
+    def connect_device(self, device) -> bool:
+        log = PyUiLogger.get_logger()
+        log.info(f"connecting to ({device.address})")
+
+        ok, step, output = self.bluetooth_scanner.connect(device)
+        if not ok:
+            Display.display_message(
+                Language.label("bluetoothConnectFailed", "Bluetooth device {name} failed to connect at step: {step}. {output}")
+                .replace("{name}", device.name)
+                .replace("{step}", step)
+                .replace("{output}", output or ""),
+                duration_ms=5000,
+            )
+            return False
+
+        Display.display_message(
+            Language.label("bluetoothConnectSuccess", "Bluetooth device {name} connected successfully").replace("{name}", device.name),
+            duration_ms=5000,
+        )
+        self.bluetooth_scanner.refresh_devices()
+        Device.get_device().refresh_audio_route()
+        return True
+
+
+    def show_bluetooth_menu(self):
+        try:
+            selected = Selection(None, None, 0)
+            devices = []
+            bluetooth_enabled = Device.get_device().is_bluetooth_enabled()
+            if(not bluetooth_enabled):
+                self.bluetooth_adjust()
+            self.bluetooth_scanner.start()
+
+            while(selected is not None):
+                bluetooth_enabled = Device.get_device().is_bluetooth_enabled()
+                option_list = []
+                option_list.append(
+                    GridOrListEntry(
+                            primary_text=Language.status(),
+                            value_text="<    " + (Language.label("scanning", "Scanning") if bluetooth_enabled else Language.on_off_label(False)) + "    >",
+                            image_path=None,
+                            image_path_selected=None,
+                            description=None,
+                            icon=None,
+                            value=self.bluetooth_adjust
+                        )
+                )
+                
+                if(bluetooth_enabled):
+                    devices = self.bluetooth_scanner.scan_devices()
+
+                    for bt_device in devices:
+                        option_list.append(
+                            GridOrListEntry(
+                                    primary_text="✓ " + bt_device.name if bt_device.paired else bt_device.name,
+                                    value_text=bt_device.address,
+                                    image_path=None,
+                                    image_path_selected=None,
+                                    description=None,
+                                    icon=None,
+                                    value=lambda device=bt_device: self.toggle_pairing_device(device)  
+                                )
+                        )
+
+                list_view = ViewCreator.create_view(
+                        view_type=ViewType.ICON_AND_DESC,
+                        top_bar_text=Language.label("bluetoothConfiguration", "Bluetooth Configuration"), 
+                        options=option_list,
+                        selected_index=selected.get_index()) #always reset to the top in case devices change during a scan
+
+                accepted_inputs = [ControllerInput.A, ControllerInput.DPAD_LEFT, ControllerInput.DPAD_RIGHT,
+                                                    ControllerInput.L1, ControllerInput.R1, ControllerInput.X]
+                selected = list_view.get_selection(accepted_inputs)
+
+                if(selected.get_input() in accepted_inputs):
+                    PyUiLogger.get_logger().info(f"bluetooth_enabled={bluetooth_enabled}")
+                    if(ControllerInput.A == selected.get_input() 
+                        or ControllerInput.DPAD_LEFT == selected.get_input() 
+                        or ControllerInput.DPAD_RIGHT == selected.get_input()):
+                        selected.get_selection().value()
+                    elif(ControllerInput.X == selected.get_input() and 0 < selected.get_index() <= len(devices)):
+                        # Row 0 is the status entry; the device rows follow in scan order.
+                        self.forget_device(devices[selected.get_index() - 1])
+                elif(ControllerInput.B == selected.get_input()):
+                    selected = None
+
+        finally:
+            Display.display_message(Language.label("stoppingBluetoothScanner", "Stopping Bluetooth scanner..."))
+            self.bluetooth_scanner.stop()

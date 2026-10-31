@@ -1,0 +1,446 @@
+from collections import defaultdict
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+from typing import List
+
+from controller.controller import Controller
+from controller.controller_inputs import ControllerInput
+
+from devices.device import Device
+from display.display import Display
+from utils.logger import PyUiLogger
+from utils.py_ui_config import PyUiConfig
+from views.grid_or_list_entry import GridOrListEntry
+from views.selection import Selection
+from views.view_creator import ViewCreator
+from views.view_type import ViewType
+
+
+class OptionSelectUI:
+
+    @staticmethod
+    def _get_cfw_version():
+        """Read the installed CFW version string from the configured version file."""
+        version_file = PyUiConfig.get_cfw_version_file()
+        if not version_file:
+            return None
+
+        try:
+            with open(version_file, "r", encoding="utf-8") as f:
+                version = f.read().strip()
+
+            return version or None
+        except (OSError, ValueError):
+            return None
+
+    @staticmethod
+    def _version_tuple(version):
+        """Convert a dotted version string into a comparable numeric tuple."""
+        import re
+
+        if not version:
+            return None
+
+        parts = re.findall(r"\d+", version)
+        return tuple(map(int, parts)) if parts else None
+
+    @staticmethod
+    def _version_meets_minimum(current_version, min_version):
+        """Return whether the installed version meets a minimum version."""
+        current = OptionSelectUI._version_tuple(current_version)
+        minimum = OptionSelectUI._version_tuple(min_version)
+
+        if current is None:
+            return False
+        if minimum is None:
+            return True
+
+        length = max(len(current), len(minimum))
+        current = current + (0,) * (length - len(current))
+        minimum = minimum + (0,) * (length - len(minimum))
+
+        return current >= minimum
+
+    @staticmethod
+    def _filter_compatible_entries(data):
+        """Remove entries incompatible with the current device or CFW version."""
+        device_map = data.get("devices", {})
+        min_version_map = data.get("min_cfw_version", {})
+        filtered = dict(data)
+
+        current_version = OptionSelectUI._get_cfw_version()
+
+        for key in data:
+            if key in (
+                "descriptions",
+                "icons",
+                "devices",
+                "min_cfw_version",
+            ):
+                continue
+
+            devices = device_map.get(key)
+            if devices and not Device.supports_device(devices):
+                filtered.pop(key, None)
+                continue
+
+            min_version = min_version_map.get(key)
+            if min_version and not OptionSelectUI._version_meets_minimum(
+                current_version, min_version
+            ):
+                filtered.pop(key, None)
+
+        return filtered
+
+    @staticmethod
+    def _build_tree_from_flat_map(flat_map):
+        """
+        Convert a flat dict with slash-separated keys into a nested dict-of-dicts.
+        Leaves (final parts) contain the original string value.
+        """
+        def tree():
+            return defaultdict(tree)
+
+        root = tree()
+
+        for key, value in flat_map.items():
+            if key in (
+                "descriptions",
+                "icons",
+                "devices",
+                "min_cfw_version",
+            ):
+                continue
+
+            parts = key.split("/")
+            node = root
+            for part in parts[:-1]:
+                node = node[part]
+            node[parts[-1]] = value
+
+        def prune_empty_branches(node):
+            for key, value in list(node.items()):
+                if isinstance(value, dict):
+                    prune_empty_branches(value)
+                    if not value:
+                        del node[key]
+
+        prune_empty_branches(root)
+        return root
+
+    @staticmethod
+    def _write_result_to_file(result):
+        """Write selection result to selection.txt next to package root (two levels up)."""
+        script_dir = Path(__file__).resolve().parent.parent
+        result_file = script_dir / "selection.txt"
+        PyUiLogger.get_logger().info(
+            f"Writing {result} to {result_file}"
+        )
+
+        try:
+            with result_file.open("w", encoding="utf-8") as f:
+                f.write(result)
+        except Exception as e:
+            PyUiLogger.get_logger().error(
+                f"Error writing result to file: {e}"
+            )
+
+    @staticmethod
+    def _make_option_list_from_menu(
+        menu_dict,
+        folder,
+        is_root,
+        exit_after_running,
+        view_type,
+        execute_immediately=False,
+        descriptions=None,
+        icons=None,
+    ):
+        if descriptions is None:
+            descriptions = {}
+
+        if icons is None:
+            icons = {}
+
+        def run_action(val):
+            if exit_after_running:
+                Display.deinit_display()
+                os.sync()
+                subprocess.run(val, shell=True)
+                sys.exit(0)
+            elif execute_immediately:
+                Display.display_message(f"Executing: {val}")
+                subprocess.run(val, shell=True)
+                Controller.clear_input_queue()
+                Display.reinitialize()
+                Display.display_message(
+                    f"Finished Running {val}",
+                    duration_ms=2000,
+                )
+            else:
+                OptionSelectUI._write_result_to_file(val)
+                return val
+
+        option_list = []
+
+        if isinstance(menu_dict, dict):
+            for key, val in menu_dict.items():
+                img_path = f"{folder}/Imgs/{key}.png"
+                if not os.path.exists(img_path):
+                    img_path = f"{folder}/Imgs/{key}.qoi"
+
+                # Look up description and icon from top-level dictionaries.
+                desc_text = descriptions.get(key)
+                icon = icons.get(key)
+
+                if is_root:
+                    if isinstance(val, str):
+                        # Leaf node
+                        option_value = (
+                            lambda controller_input=None, v=val:
+                            run_action(v)
+                            if controller_input == ControllerInput.A
+                            else None
+                        )
+                    else:
+                        # Submenu node
+                        option_value = (
+                            lambda controller_input=None, v=val, k=key:
+                            None
+                            if controller_input != ControllerInput.A
+                            else OptionSelectUI.navigate_menu(
+                                menu_dict=v,
+                                title=k,
+                                folder=folder,
+                                exit_after_running=exit_after_running,
+                                view_type=view_type,
+                                execute_immediately=execute_immediately,
+                                is_root=False,
+                                descriptions=descriptions,
+                                icons=icons,
+                            )
+                        )
+                else:
+                    # Navigation mode just stores the key for lookup.
+                    option_value = key
+
+                option_list.append(
+                    GridOrListEntry(
+                        primary_text=key,
+                        value=option_value,
+                        image_path=img_path,
+                        description=desc_text,
+                        icon=icon,
+                    )
+                )
+
+        return option_list
+
+    @staticmethod
+    def navigate_menu(
+        menu_dict,
+        title,
+        folder,
+        exit_after_running,
+        view_type,
+        execute_immediately=False,
+        is_root=False,
+        descriptions=None,
+        icons=None,
+    ):
+        """
+        Core navigation function.
+        - If is_root is True: returns a list of GridOrListEntry with .value as callable.
+        - If is_root is False: displays the menu and handles navigation.
+        """
+        if descriptions is None:
+            descriptions = {}
+
+        if icons is None:
+            icons = {}
+
+        # If menu_dict is a string (leaf), just execute.
+        if isinstance(menu_dict, str):
+            return OptionSelectUI._make_option_list_from_menu(
+                {menu_dict: menu_dict},
+                folder,
+                is_root=True,
+                exit_after_running=exit_after_running,
+                view_type=view_type,
+                execute_immediately=execute_immediately,
+                descriptions=descriptions,
+                icons=icons,
+            )
+
+        # Build option list.
+        option_list = OptionSelectUI._make_option_list_from_menu(
+            menu_dict,
+            folder,
+            is_root,
+            exit_after_running,
+            view_type,
+            execute_immediately=execute_immediately,
+            descriptions=descriptions,
+            icons=icons,
+        )
+
+        if is_root:
+            return option_list
+
+        # UI navigation mode.
+        selected = Selection(None, None, 0)
+        view = ViewCreator.create_view(
+            view_type=view_type,
+            top_bar_text=title,
+            options=option_list,
+            selected_index=selected.get_index(),
+        )
+
+        while True:
+            selected = view.get_selection(
+                [ControllerInput.A, ControllerInput.B]
+            )
+
+            if selected is None:
+                continue
+
+            inp = selected.get_input()
+            entry = selected.get_selection()
+
+            if inp == ControllerInput.B:
+                return None
+
+            elif inp == ControllerInput.A:
+                key = entry.get_value()
+                val = menu_dict[key]
+
+                if isinstance(val, str):
+                    if exit_after_running:
+                        Display.deinit_display()
+                        os.sync()
+                        subprocess.run(val, shell=True)
+                        sys.exit(0)
+
+                    elif execute_immediately:
+                        Display.display_message(f"Executing: {val}")
+                        subprocess.run(val, shell=True)
+                        Controller.clear_input_queue()
+                        Display.reinitialize()
+                        Display.display_message(
+                            f"Finished Running {val}",
+                            duration_ms=1000,
+                        )
+
+                    else:
+                        OptionSelectUI._write_result_to_file(val)
+                        return val
+
+                else:
+                    result = OptionSelectUI.navigate_menu(
+                        val,
+                        key,
+                        folder,
+                        exit_after_running,
+                        view_type=view_type,
+                        execute_immediately=execute_immediately,
+                        is_root=False,
+                        descriptions=descriptions,
+                        icons=icons,
+                    )
+
+                    if result is not None:
+                        return result
+
+    @staticmethod
+    def get_top_level_options_from_json(
+        json_path: str | Path,
+        view_type,
+        exit_after_running=False,
+        execute_immediately=False,
+    ) -> List[GridOrListEntry]:
+        """
+        Reads JSON and returns top-level GridOrListEntry list with .value lambdas.
+        """
+        json_path = Path(json_path)
+
+        with open(json_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        data = OptionSelectUI._filter_compatible_entries(data)
+
+        descriptions = data.get("descriptions", {})
+        icons = data.get("icons", {})
+
+        root_dict = OptionSelectUI._build_tree_from_flat_map(data)
+        folder = str(json_path.parent)
+
+        return OptionSelectUI.navigate_menu(
+            root_dict,
+            title="",
+            folder=folder,
+            exit_after_running=exit_after_running,
+            view_type=view_type,
+            execute_immediately=execute_immediately,
+            is_root=True,
+            descriptions=descriptions,
+            icons=icons,
+        )
+
+    @staticmethod
+    def display_menu_ui(
+        title,
+        menu_dict,
+        folder,
+        exit_after_running,
+        view_type,
+        descriptions=None,
+        icons=None,
+    ):
+        """Show menu starting from menu_dict."""
+        return OptionSelectUI.navigate_menu(
+            menu_dict,
+            title,
+            folder,
+            exit_after_running,
+            view_type=view_type,
+            is_root=False,
+            descriptions=descriptions,
+            icons=icons,
+        )
+
+    @staticmethod
+    def display_option_list(
+        title,
+        input_json,
+        exit_after_running,
+    ):
+        """Convenience function to preserve legacy API."""
+        with open(input_json, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        data = OptionSelectUI._filter_compatible_entries(data)
+
+        descriptions = data.get("descriptions", {})
+        icons = data.get("icons", {})
+
+        root_dict = OptionSelectUI._build_tree_from_flat_map(data)
+        folder = str(Path(input_json).parent)
+
+        result = OptionSelectUI.display_menu_ui(
+            title,
+            root_dict,
+            folder,
+            exit_after_running=exit_after_running,
+            view_type=ViewType.TEXT_AND_IMAGE,
+            descriptions=descriptions,
+            icons=icons,
+        )
+
+        if result is None:
+            OptionSelectUI._write_result_to_file("EXIT")
+            result = "EXIT"
+
+        return result

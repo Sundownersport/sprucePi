@@ -1,0 +1,314 @@
+import ctypes
+import fcntl
+from pathlib import Path
+import subprocess
+import time
+from apps.miyoo.miyoo_app_finder import MiyooAppFinder
+from controller.controller_inputs import ControllerInput
+from devices.charge.charge_status import ChargeStatus
+import os
+from devices.device_common import DeviceCommon
+from devices.miyoo_trim_common import MiyooTrimCommon
+from display.display import Display
+from menus.language.language import Language
+from games.utils.device_specific.miyoo_trim_game_system_utils import MiyooTrimGameSystemUtils
+from games.utils.game_entry import GameEntry
+from menus.games.utils.rom_info import RomInfo
+from menus.settings.button_remapper import ButtonRemapper
+from utils import throttle
+from utils.logger import PyUiLogger
+from utils.py_ui_config import PyUiConfig
+
+class TrimUIDevice(DeviceCommon):
+
+    @staticmethod
+    def pad_event_path(default="/dev/input/event3"):
+        """The controller's input node, found by name rather than assumed.
+
+        The pad is the virtual "TRIMUI Player1" device that trimui_inputd
+        creates after boot, so its number is not fixed: a USB device with a HID
+        interface (many USB DACs have one for inline buttons) that is plugged in
+        at boot registers first and takes event3, and the pad lands on event4.
+        Reading event3 then reads the DAC, and no button works.
+        """
+        return DeviceCommon.input_event_path("TRIMUI Player1", default)
+    
+    def __init__(self):
+        self.button_remapper = ButtonRemapper(self.system_config)
+        self.game_utils = MiyooTrimGameSystemUtils()
+        super().__init__()
+
+    def on_system_config_changed(self):
+        old_volume = self.system_config.get_volume()
+        old_wifi_enabled = self.system_config.is_wifi_enabled()
+        self.system_config.reload_config()
+        new_volume = self.system_config.get_volume()
+        if(old_volume != new_volume):
+            Display.volume_changed(new_volume)
+
+        # Something outside this process - the physical switch's
+        # scene-wifi.sh, today - can flip .wifi in this same file while PyUI
+        # is already running. reload_config() above picks up the fresh
+        # value, but the WiFi status caches still
+        # need an explicit nudge so the WiFi menu/top bar icon catch up
+        # immediately instead of waiting on their own throttle window.
+        if(old_wifi_enabled != self.system_config.is_wifi_enabled()):
+            self.get_wifi_status.force_refresh()
+            self.get_ip_addr_text.force_refresh()
+
+    def clear_framebuffer(self):
+        pass
+
+    def capture_framebuffer(self):
+        pass
+
+    def restore_framebuffer(self):
+        pass
+    
+
+    def power_off_cmd(self):
+        return "poweroff"
+    
+
+    def reboot_cmd(self):
+        return "reboot"
+        
+    def power_off(self):
+        super().power_off()
+        # So we dont update the display while shutting down
+        time.sleep(10)
+
+    def reboot(self):
+        Display.display_message(Language.label("rebooting", "Rebooting..."))
+        time.sleep(1)
+        super().reboot()
+        # So we dont update the display while rebooting
+        time.sleep(10)
+
+    def _set_lumination_to_config(self):
+        val = self.map_backlight_from_10_to_full_255(self.system_config.backlight)
+        try:
+            DISP_LCD_SET_BRIGHTNESS = 0x102 
+            fd = os.open("/dev/disp", os.O_RDWR)
+            if fd > 0:
+                # Create a ctypes array equivalent to: unsigned long param[4] = {0, val, 0, 0};
+                param = (ctypes.c_ulong * 4)(0, val, 0, 0)
+                # Perform ioctl with pointer to param
+                fcntl.ioctl(fd, DISP_LCD_SET_BRIGHTNESS, param)
+                os.close(fd)
+        except Exception as e:
+            PyUiLogger.get_logger().error(f"Error setting brightness: {e}")
+
+    def _set_contrast_to_config(self):
+        with open("/sys/devices/virtual/disp/disp/attr/enhance_contrast", "w") as f:
+            f.write(str(self.system_config.contrast * 5))
+
+    def _set_saturation_to_config(self):
+        with open("/sys/devices/virtual/disp/disp/attr/enhance_saturation", "w") as f:
+            f.write(str(self.system_config.saturation * 5))
+
+    def _set_brightness_to_config(self):
+        with open("/sys/devices/virtual/disp/disp/attr/enhance_bright", "w") as f:
+            f.write(str(self.system_config.brightness * 5))
+
+    def _set_hue_to_config(self):
+        with open("/sys/devices/virtual/disp/disp/attr/color_temperature", "w") as f:
+            f.write(str((self.system_config.hue * 5) - 50))
+
+    def get_volume(self):
+        return self.system_config.get_volume()
+
+    def sleep(self):
+        try:
+            with open("/sys/power/state", "w") as f:
+                f.write("mem")  
+        except Exception as e:
+            PyUiLogger.get_logger().error(f"Failure attempting to sleep: {e}")
+
+
+    def run_game(self, rom_info):
+        return MiyooTrimCommon.run_game(self, rom_info)
+
+    def run_cmd(self, args, dir = None, is_power_cmd = False):
+        MiyooTrimCommon.run_cmd(self, args, dir, is_power_cmd)
+        
+    def run_app(self, folder,launch):
+        MiyooTrimCommon.run_app(self, folder,launch)
+
+    def map_digital_input(self, sdl_input):
+        mapping = self.sdl_button_to_input.get(sdl_input, ControllerInput.UNKNOWN)
+        if(ControllerInput.UNKNOWN == mapping):
+            PyUiLogger.get_logger().error(f"Unknown input {sdl_input}")
+        return mapping
+    
+    def map_key(self, key_code):
+        if(116 == key_code):
+            return ControllerInput.POWER_BUTTON
+        if(115 == key_code):
+            return ControllerInput.VOLUME_UP
+        elif(114 == key_code):
+            return ControllerInput.VOLUME_DOWN
+        else:
+            PyUiLogger.get_logger().debug(f"Unrecognized keycode {key_code}")
+            return None
+
+    
+    def special_input(self, controller_input, length_in_seconds):
+        if(PyUiConfig.enable_button_watchers()):
+            if(ControllerInput.POWER_BUTTON == controller_input):
+                if(length_in_seconds < 1):
+                    self.sleep()
+                else:
+                    self.prompt_power_down()
+
+    def map_analog_input(self, sdl_axis, sdl_value):
+        PyUiLogger.get_logger().error(f"Received analog input axis = {sdl_axis}, value = {sdl_value}")
+
+    def is_wifi_enabled(self):
+        return self.system_config.is_wifi_enabled()
+
+    @throttle.limit_refresh(5)
+    def get_charge_status(self):
+        #Probably need to find the power and not just usb
+        with open("/sys/class/power_supply/axp2202-usb/online", "r") as f:
+            ac_online = int(f.read().strip())
+            
+        if(ac_online):
+           return ChargeStatus.CHARGING
+        else:
+            return ChargeStatus.DISCONNECTED
+    
+    @throttle.limit_refresh(15)
+    def get_battery_percent(self):
+        with open("/sys/class/power_supply/axp2202-battery/capacity", "r") as f:
+            return int(f.read().strip()) 
+        return 0
+        
+    def get_app_finder(self):
+        return MiyooAppFinder()
+    
+    def parse_favorites(self) -> list[GameEntry]:
+        return self.miyoo_games_file_parser.parse_favorites()
+    
+    def parse_recents(self) -> list[GameEntry]:
+        return self.miyoo_games_file_parser.parse_recents()
+
+    def perform_startup_tasks(self):
+        self.refresh_audio_route()
+
+    def get_favorites_path(self):
+        return "/mnt/SDCARD/Saves/pyui-favorites.json"
+        
+    def get_recents_path(self):
+        return "/mnt/SDCARD/Saves/pyui-recents.json"
+            
+    def get_apps_config_path(self):
+        return "/mnt/SDCARD/Saves/pyui-apps.json"
+
+    def get_collections_path(self):
+        return "/mnt/SDCARD/Collections/"
+
+    def get_state_path(self):
+        return "/mnt/SDCARD/Saves/pyui-state.json"
+
+    def launch_stock_os_menu(self):
+        pass
+
+    def calibrate_sticks(self):
+        from controller.controller import Controller
+        from devices.trimui.trim_ui_stick_calibrator import TrimUIStickCalibrator
+        TrimUIStickCalibrator(Controller.controller_interface.event_path, self.apply_stick_calibration).run()
+
+    def apply_stick_calibration(self):
+        from devices.trimui.trim_ui_stick_calibrator import TrimUIStickCalibrator
+        TrimUIStickCalibrator.reload_via_cal_update()
+
+    def supports_analog_calibration(self):
+        return False
+
+    def supports_image_resizing(self):
+        return True
+
+    def remap_buttons(self):
+        self.button_remapper.remap_buttons()
+
+    def supports_wifi(self):
+        return True
+    
+    def get_game_system_utils(self):
+        return self.game_utils
+    
+    def get_roms_dir(self):
+        return "/mnt/SDCARD/Roms/"
+
+    def take_snapshot(self, path):
+        return None
+    
+    def supports_brightness_calibration():
+        return True
+
+    def supports_contrast_calibration():
+        return True
+
+    def supports_saturation_calibration():
+        return True
+
+    def supports_hue_calibration():
+        return True
+
+    def get_save_state_image(self, rom_info: RomInfo):
+        return self.get_game_system_utils().get_save_state_image(rom_info)
+
+    def get_fw_version(self):
+        try:
+            with open(f"/etc/version") as f:
+                return f.read().strip()
+        except Exception as e:
+            PyUiLogger.get_logger().error(f"Could not read FW version : {e}")
+            return "Unknown"
+
+    def get_core_for_game(self, game_system_config, rom_file_path):
+        core = game_system_config.get_effective_menu_selection("Emulator", rom_file_path)
+        if(core is None):
+            core = game_system_config.get_effective_menu_selection("Emulator_64", rom_file_path)
+        return core
+    
+    # supports_timezone_setting and prompt_timezone_update come from
+    # DeviceCommon now, so the zone list matches the other devices.
+
+    def apply_timezone(self, timezone):
+        """
+        timezone example: "America/New_York"
+
+        The shared behaviour sets TZ and republishes it. On top of that the
+        TrimUI points /etc/localtime at the same file, so anything that reads
+        the system timezone rather than the environment agrees, and writes the
+        result back to the hardware clock.
+        """
+        if not super().apply_timezone(timezone):
+            return False
+
+        zoneinfo_path = Path(self.get_zoneinfo_dir()) / timezone
+        localtime_path = Path("/etc/localtime")
+
+        # Update system timezone symlink
+        try:
+            subprocess.run(
+                ["ln", "-sf", str(zoneinfo_path), str(localtime_path)],
+                check=True
+            )
+        except Exception as e:
+            PyUiLogger.get_logger().error(f"Failed to update /etc/localtime: {e}")
+
+        self.sync_hw_clock()
+        return True
+
+    @throttle.limit_refresh(1)
+    def post_present_operations(self):
+        self.clear_display_cache_if_memory_full("MemAvailable", 100)        
+
+    def check_for_button_remap(self, input):
+        return self.button_remapper.get_mappping(input)
+
+    def get_image_for_activity(self, activity):
+        return MiyooTrimCommon.get_image_for_activity(activity)

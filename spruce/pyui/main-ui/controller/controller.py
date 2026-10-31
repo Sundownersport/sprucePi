@@ -1,0 +1,569 @@
+import time
+from controller.controller_inputs import ControllerInput
+from devices.device import Device
+
+from themes.theme import Theme
+from utils.logger import PyUiLogger
+from utils.py_ui_config import PyUiConfig
+from utils import shutdown
+
+class Controller:
+    controller = None
+    index = None
+    name = None
+    mapping = None
+    # Every clock reading in here measures how long something has been going on,
+    # never what time of day it is, so they all use time.monotonic(). time.time()
+    # jumps when the user sets the clock in settings, and a jump forward used to
+    # look like a long idle and kick the screensaver on mid-edit.
+    last_input_time = 0
+    screensaver_input_tracking_time = time.monotonic()
+    hold_delay = 0
+    additional_button_watchers = []
+    is_check_for_hotkey = False
+    non_sdl_input = None
+    hold_buttons = {ControllerInput.POWER_BUTTON}
+    #Used to track certain inputs
+    last_press_time_map = {}
+    special_non_sdl_event = False
+    render_required_callback = None
+    last_controller_input = None
+    _input_history = []
+    gs_triggered = False
+    first_check_after_gs_triggered = False
+    controller_interface = None
+    _watch_for_secret_code = False
+    _screensaver_active = False
+    _screensaver_ignore_input_until = 0
+    _game_running = False
+    # Long jobs with no button presses (box art optimizing/downloading) keep the
+    # screensaver off while they run: see hold_screensaver().
+    _screensaver_holds = 0
+    # Logical-space point of the last TOUCH_TAP, set by the touch watcher
+    touch_point = None
+    # A screen that changes, or was just used, is redrawn as often as its view
+    # asks (Display paces that to 60 frames a second). Once it has looked the same
+    # for IDLE_AFTER_SECONDS (longer than the 1 s before a long title starts to
+    # scroll) and IDLE_AFTER_FRAMES frames in a row (so a stall that leaves only a
+    # frame or two in that time can't pass for a still screen), get_input()
+    # sleeps until a button, request_redraw() or the screensaver, and the screen
+    # is drawn every IDLE_FRAME_SECONDS (the clock, the battery icon) instead of
+    # as fast as the device can.
+    IDLE_AFTER_SECONDS = 1.5
+    IDLE_AFTER_FRAMES = 6
+    IDLE_FRAME_SECONDS = 1.0
+    _redraw_requested = False
+    _last_press_time = 0
+
+    # The sequence we want to detect
+    _SECRET_CODE = [
+        ControllerInput.DPAD_UP,
+        ControllerInput.DPAD_UP,
+        ControllerInput.DPAD_DOWN,
+        ControllerInput.DPAD_DOWN,
+        ControllerInput.DPAD_LEFT,
+        ControllerInput.DPAD_RIGHT,
+        ControllerInput.DPAD_LEFT,
+        ControllerInput.DPAD_RIGHT,
+        ControllerInput.B,
+        ControllerInput.A,
+        ControllerInput.START,
+        ControllerInput.SELECT,
+    ]
+    _SECRET_CODE_PREFIX = [
+        ControllerInput.DPAD_UP,
+        ControllerInput.DPAD_UP,
+        ControllerInput.DPAD_DOWN,
+        ControllerInput.DPAD_DOWN,
+        ControllerInput.DPAD_LEFT,
+        ControllerInput.DPAD_RIGHT,
+        ControllerInput.DPAD_LEFT,
+        ControllerInput.DPAD_RIGHT,
+        ControllerInput.B,
+        ControllerInput.A,
+    ]
+
+
+    @staticmethod
+    def set_touch_point(x, y):
+        Controller.touch_point = (x, y)
+
+    @staticmethod
+    def take_touch_point():
+        point = Controller.touch_point
+        Controller.touch_point = None
+        return point
+
+    @staticmethod
+    def init():
+        Controller.controller_interface = Device.get_device().get_controller_interface()
+        Controller._watch_for_secret_code = Device.get_device().get_system_config().game_selection_only_mode_enabled() or Device.get_device().get_system_config().simple_mode_enabled()
+
+    @staticmethod
+    def init_controller():
+        Controller.controller_interface.init_controller()
+
+    @staticmethod
+    def request_redraw():
+        """Have the screen drawn again now, from any thread, by ending a wait for input.
+
+        For changes no button makes (a volume key, a download finishing): a screen that
+        looks the same is otherwise only drawn every IDLE_FRAME_SECONDS.
+        """
+        Controller._redraw_requested = True
+        if Controller.controller_interface is not None:
+            Controller.controller_interface.wake()
+
+    @staticmethod
+    def _default_timeout():
+        from display.display import Display
+        if Controller._redraw_requested:
+            Controller._redraw_requested = False
+            return 0
+        now = time.monotonic()
+        last_activity = max(Display.last_change_time(), Controller._last_press_time)
+        if now - last_activity < Controller.IDLE_AFTER_SECONDS:
+            return 0
+        # A loop that draws nothing (waiting for one button) has no frames to count.
+        drew_since_last_wait = Display.last_present_time() > Controller.last_input_time
+        if drew_since_last_wait and Display.unchanged_frames() < Controller.IDLE_AFTER_FRAMES:
+            return 0
+        # From the last frame, or from the last wait in a loop that draws nothing.
+        since = max(Display.last_present_time(), Controller.last_input_time)
+        return max(since + Controller.IDLE_FRAME_SECONDS - now, 0)
+
+
+    @staticmethod
+    def re_init_controller():
+        Controller.controller_interface.re_init_controller()
+
+    @staticmethod
+    def new_bt_device_paired():
+        Controller.re_init_controller()
+
+    @staticmethod
+    def close():
+        Controller.controller_interface.close()
+
+    @staticmethod
+    def still_held_down():
+        return Controller.controller_interface.still_held_down()
+
+    @staticmethod
+    def clear_last_input():
+        #if(Controller.last_controller_input is not None):
+        #    PyUiLogger.get_logger().info(f"Clearing last input")
+        Controller.last_controller_input = None
+        Controller.controller_interface.clear_input()
+
+    @staticmethod
+    def _matches_secret_prefix():
+        h = Controller._input_history
+        p = Controller._SECRET_CODE_PREFIX
+        plen = len(p)
+
+        if len(h) < plen:
+            return False
+
+        return h[-plen:] == p     
+       
+    @staticmethod
+    def set_last_input(last_input):
+        if(last_input == ControllerInput.LEFT_STICK_UP):
+            last_input = ControllerInput.DPAD_UP
+        elif(last_input == ControllerInput.LEFT_STICK_DOWN):
+            last_input = ControllerInput.DPAD_DOWN
+        elif(last_input == ControllerInput.LEFT_STICK_LEFT):
+            last_input = ControllerInput.DPAD_LEFT
+        elif(last_input == ControllerInput.LEFT_STICK_RIGHT):
+            last_input = ControllerInput.DPAD_RIGHT
+        elif(last_input == ControllerInput.RIGHT_STICK_UP):
+            last_input = ControllerInput.DPAD_UP
+        elif(last_input == ControllerInput.RIGHT_STICK_DOWN):
+            last_input = ControllerInput.DPAD_DOWN
+        elif(last_input == ControllerInput.RIGHT_STICK_LEFT):
+            last_input = ControllerInput.DPAD_LEFT
+        elif(last_input == ControllerInput.RIGHT_STICK_RIGHT):
+            last_input = ControllerInput.DPAD_RIGHT
+
+        Controller.last_controller_input = last_input
+
+        if(Controller._watch_for_secret_code and last_input is not None):
+            if(Controller._matches_secret_prefix() and Controller.last_controller_input == ControllerInput.A):
+                PyUiLogger().get_logger().info(f"Prefix matched so blocking A press")
+                Controller.last_controller_input = None
+                return
+
+            # Add input to history
+            Controller._input_history.append(last_input)
+
+            # Keep history trimmed to the length of the code
+            max_len = len(Controller._SECRET_CODE)
+            if len(Controller._input_history) > max_len:
+                Controller._input_history.pop(0)
+
+            # Check for match
+            if Controller._input_history == Controller._SECRET_CODE:
+                PyUiLogger().get_logger().info(f"Secret code entered")
+                Device.get_device().get_system_config().set_game_selection_only_mode_enabled(False)
+                Device.get_device().get_system_config().set_simple_mode_enabled(False)
+                Device.get_device().exit_pyui()
+
+
+            if(Controller._matches_secret_prefix()):
+                PyUiLogger().get_logger().info(f"Prefix matched so blocking A press")
+                Controller.last_controller_input = None
+
+
+    # The Home button only exists on the Smart Pro S. In game the shell watchdog
+    # runs whatever the user picked in Button Settings, but the Game Switcher
+    # action needs a running PyUI to show it, so handle that one here. The other
+    # actions (screenshot, LED, ...) stay with the watchdog, which is why this
+    # checks the setting instead of always opening the switcher: otherwise a
+    # Home press would both take a screenshot and open the switcher.
+    @staticmethod
+    def home_button_pressed():
+        from utils.cfw_system_config import CfwSystemConfig
+        if(Controller.gs_triggered):
+            return
+        if("Game Switcher" != CfwSystemConfig.get_selected_value("Button Settings", "homeAction")):
+            return
+        from menus.games.recents_menu_gs import RecentsMenuGS
+        Controller.gs_triggered = True
+        Controller.clear_last_input()
+        PyUiLogger.get_logger().info("Home button: starting GS().run_rom_selection()")
+        RecentsMenuGS().run_rom_selection()
+        Controller.clear_last_input()
+        Controller.gs_triggered = False
+
+
+    return_count_of_current_input = 0
+    last_hold_return_time  = 0
+
+    #This is to account for dumb coding elsewhere that I don't want to fix
+    get_input_called_again = False
+
+    @staticmethod
+    def last_input():
+
+        if(not Controller.get_input_called_again):
+            # Means someone is calling for a cached value, not a call after
+            # an input has actually been requested. This method should have never existed
+            # as it has a dual purpose which makes the delay difficult
+            return Controller.last_controller_input
+        
+        if(Controller.last_controller_input is None):
+            return None
+        
+        now = time.monotonic()
+        if(Controller.return_count_of_current_input == 0):
+            # This is for initiating turbo mode
+            Controller.hold_delay = PyUiConfig.get_turbo_delay_ms()
+        else:
+            # Means we have already returned once
+            elapsed = now - Controller.last_hold_return_time
+            if(elapsed < Controller.hold_delay):
+                return None
+            
+            if(Controller.return_count_of_current_input == 1):
+                # This is the delay for each press AFTER turbo mode is engaged
+                Controller.hold_delay = Device.get_device().get_system_config().get_input_rate_limit_ms() / 1000
+
+        Controller.last_hold_return_time = now
+        Controller.return_count_of_current_input += 1
+        Controller.get_input_called_again = False
+        return Controller.last_controller_input
+
+
+    @staticmethod
+    def get_input(timeout=-2, called_from_check_for_hotkey=False):
+        shutdown.checkpoint()
+        Controller.get_input_called_again = True
+        if(Controller.return_count_of_current_input != 0 and Controller.still_held_down() and not called_from_check_for_hotkey):
+            return True # TODO is this okay
+        if(not called_from_check_for_hotkey):
+            Controller.return_count_of_current_input = 0
+        
+        if(Controller.first_check_after_gs_triggered):
+            #Let user stop holding menu
+            Controller.first_check_after_gs_triggered = False
+            time.sleep(0.3)
+        DEFAULT_TIMEOUT_FLAG = -2
+        INPUT_DEBOUNCE_SECONDS = 0.2
+        POLL_INTERVAL_SECONDS = 0.005
+
+        from display.display import Display
+
+        # Screensaver: if already blanked, wait for any input to restore
+        if Controller._screensaver_active:
+            from display.screensaver import ScreenSaver
+            while True:
+                shutdown.checkpoint()
+                ScreenSaver.render_if_needed()
+                Controller.controller_interface.force_refresh()
+                if Controller.still_held_down():
+                    time.sleep(POLL_INTERVAL_SECONDS)
+                    continue
+                ms = int(POLL_INTERVAL_SECONDS * 1000)
+                inp = Controller.controller_interface.get_input(ms)
+                shutdown.checkpoint()
+                if inp is not None and time.monotonic() < Controller._screensaver_ignore_input_until:
+                    Controller.controller_interface.clear_input_queue()
+                    continue
+                if inp is not None:
+                    Controller.set_last_input(inp)
+                    Controller.controller_interface.clear_input_queue()
+                    ScreenSaver.clear_cache()
+                    Display.restore_from_blank()
+                    Controller.last_input_time = time.monotonic()
+                    Controller.screensaver_input_tracking_time = time.monotonic()
+                    Controller._screensaver_active = False
+                    Controller.last_controller_input = None
+                    return False
+
+        # Screensaver: check if idle timeout reached (skip if game running)
+        if not called_from_check_for_hotkey and Controller._try_start_screensaver(Display):
+            return False
+
+        #if(Controller.last_controller_input is not None):
+        #    PyUiLogger.get_logger().info(f"Controller.last_controller_input = {Controller.last_controller_input}")
+
+        if(Controller.render_required_callback is not None):
+            callback = Controller.render_required_callback
+            Controller.render_required_callback = None
+            callback()
+
+        if timeout == DEFAULT_TIMEOUT_FLAG:
+            timeout = Controller._default_timeout()
+
+        now = time.monotonic()
+        time_since_last_input = now - Controller.last_input_time
+
+        # Clear stale events if enough time has passed
+        if time_since_last_input > INPUT_DEBOUNCE_SECONDS:
+            Controller.controller_interface.force_refresh()
+            if not Controller.still_held_down():
+                Controller.clear_input_queue()
+
+        Controller.controller_interface.force_refresh()
+        start_time = time.monotonic()
+
+        was_hotkey = False
+        started_held_down = Controller.still_held_down()
+        if not Controller.still_held_down():                
+            # Blocking wait for event until timeout
+            elapsed = time.monotonic() - start_time
+            remaining_time = timeout - elapsed
+            remaining_time = max(remaining_time, 0.001)
+            screensaver_timeout = Theme.get_screensaver_timeout_sec()
+            if not called_from_check_for_hotkey and Controller._screensaver_allowed() and screensaver_timeout > 0:
+                idle_remaining = screensaver_timeout - (time.monotonic() - Controller.screensaver_input_tracking_time)
+                remaining_time = min(remaining_time, max(idle_remaining, 0.001))
+            while True:
+
+                ms_remaining = int(remaining_time * 1000)
+                input = Controller.controller_interface.get_input(ms_remaining)
+                shutdown.checkpoint()
+                input = Device.get_device().check_for_button_remap(input)
+                Controller.set_last_input(input)
+
+                if Controller.last_controller_input is not None:
+                    Theme.controller_button_pressed(Controller.last_controller_input)
+                    if Controller.last_controller_input == ControllerInput.HOME:
+                        # Consumed here, never handed to a view: no menu binds it.
+                        if not called_from_check_for_hotkey:
+                            Controller.home_button_pressed()
+                        Controller.clear_last_input()
+                    elif Controller.last_controller_input == ControllerInput.MENU:
+                        if not Controller.is_check_for_hotkey and not called_from_check_for_hotkey and not Controller.check_for_hotkey():
+                            Controller.set_last_input(ControllerInput.MENU)
+                            break  # Treat MENU as valid input
+                        else:
+                            was_hotkey = True
+                            while Controller.still_held_down() and not called_from_check_for_hotkey:
+                                Controller.check_for_hotkey()
+                    elif (Controller.last_controller_input in (ControllerInput.VOLUME_UP, ControllerInput.VOLUME_DOWN)
+                        and not called_from_check_for_hotkey):
+                        # Pads that carry the volume keys on the gamepad node (Miniloong)
+                        # deliver them here instead of through a KeyWatcher; give them the
+                        # watcher's treatment (device.special_input -> step + indicator +
+                        # save). Inside check_for_hotkey they stay inputs, so the Menu + Vol
+                        # brightness chord keeps working.
+                        Device.get_device().special_input(Controller.last_controller_input, 0)
+                        Controller.clear_last_input()
+                    else:
+                        break  # Valid non-hotkey input
+                if Controller._redraw_requested:
+                    Controller._redraw_requested = False
+                    break
+                elapsed = time.monotonic() - start_time
+                remaining_time = timeout - elapsed
+                if not called_from_check_for_hotkey and Controller._screensaver_allowed() and screensaver_timeout > 0:
+                    idle_remaining = screensaver_timeout - (time.monotonic() - Controller.last_input_time)
+                    remaining_time = min(remaining_time, idle_remaining)
+                if remaining_time <= 0:
+                    if not called_from_check_for_hotkey:
+                        Controller._try_start_screensaver(Display)
+                    break
+
+
+        if Controller.still_held_down():
+            if(ControllerInput.MENU == Controller.last_input()):
+                was_hotkey = called_from_check_for_hotkey or Controller.check_for_hotkey()
+
+                if(not was_hotkey and not Controller.gs_triggered and Controller.allow_pyui_game_switcher()):
+                    Controller.gs_triggered = True
+                    Controller.first_check_after_gs_triggered = True
+                    from menus.games.recents_menu_gs import RecentsMenuGS
+                    Controller.clear_last_input()
+                    PyUiLogger.get_logger().info("Starting GS().run_rom_selection()")
+                    RecentsMenuGS().run_rom_selection()
+                    Controller.clear_last_input()
+                    Controller.gs_triggered = False
+
+        Controller.last_input_time = time.monotonic()
+        if Controller.last_controller_input is not None:
+            Controller.screensaver_input_tracking_time = time.monotonic()
+            Controller._last_press_time = Controller.screensaver_input_tracking_time
+        #if(Controller.last_controller_input is not None):
+        #    PyUiLogger.get_logger().info(f"returning last_controller_input as: {Controller.last_controller_input}")
+
+        return Controller.last_controller_input is not None and not was_hotkey
+
+    @staticmethod
+    def _screensaver_allowed():
+        return not Controller._game_running and Controller._screensaver_holds == 0
+
+    @staticmethod
+    def hold_screensaver(hold):
+        """Keep the screensaver off during a long job that runs with no button presses.
+
+        Otherwise the job's B-to-abort monitor thread, which polls get_input(),
+        starts it mid-job: the CPU drops to powersave, the backlight dims and the
+        first button press (B to abort) only wakes the screen. Holds nest; when the
+        last one is released the idle timer starts over, so the screen gets a full
+        idle period after the job.
+        """
+        if hold:
+            Controller._screensaver_holds += 1
+        else:
+            Controller._screensaver_holds = max(0, Controller._screensaver_holds - 1)
+            if Controller._screensaver_holds == 0:
+                Controller.screensaver_input_tracking_time = time.monotonic()
+
+    @staticmethod
+    def _try_start_screensaver(Display):
+        if not Controller._screensaver_allowed():
+            return False
+
+        screensaver_timeout = Theme.get_screensaver_timeout_sec()
+        if screensaver_timeout <= 0:
+            return False
+
+        if time.monotonic() - Controller.screensaver_input_tracking_time < screensaver_timeout:
+            return False
+
+        Controller.controller_interface.clear_input_queue()
+        Display.blank_screen()
+        Controller._screensaver_active = True
+        Controller._screensaver_ignore_input_until = time.monotonic() + 0.5
+        Controller.screensaver_input_tracking_time = time.monotonic()
+        return True
+
+    @staticmethod
+    def allow_pyui_game_switcher():
+        return PyUiConfig.allow_pyui_game_switcher() and Device.get_device().get_system_config().game_switcher_enabled()
+
+    @staticmethod
+    def clear_input_queue():
+        Controller.controller_interface.clear_input_queue()
+
+    @staticmethod 
+    def add_button_watcher(button_watcher):
+        Controller.additional_button_watchers.append(button_watcher)
+
+    #return TRUE if it was a hotkey press, FALSE otherwise
+    @staticmethod
+    def check_for_hotkey():
+        Controller.is_check_for_hotkey = True
+        cached_event = Controller.last_controller_input
+        Controller.controller_interface.cache_last_event()
+        Controller.clear_last_input()
+
+        was_hotkey = False
+        start_time = time.monotonic()
+
+        while(not was_hotkey and time.monotonic() - start_time < 0.3):
+            if(Controller.get_input(timeout=0.05, called_from_check_for_hotkey=True)):
+                was_hotkey = True 
+                if(not PyUiConfig.ignore_menu_button_combination_presses()):
+                    Controller.perform_hotkey(Controller.last_input())
+                    time.sleep(0.1)
+            elif(Controller.non_sdl_input is not None):
+                was_hotkey = True 
+                if(not PyUiConfig.ignore_menu_button_combination_presses()):
+                    Controller.perform_hotkey(Controller.non_sdl_input)
+                    time.sleep(0.1)
+
+        Controller.non_sdl_input = None
+        Controller.set_last_input(cached_event)
+        Controller.controller_interface.restore_cached_event()
+        Controller.is_check_for_hotkey = False
+        return was_hotkey
+    
+    @staticmethod
+    def perform_hotkey(controller_input):
+        PyUiLogger.get_logger().info(f"Performing hotkey for {controller_input}")
+        #TODO where to let these be user definable
+        if(ControllerInput.VOLUME_UP == controller_input):
+            Device.get_device().raise_lumination()
+        elif(ControllerInput.VOLUME_DOWN == controller_input):
+            Device.get_device().lower_lumination()
+        
+    @staticmethod
+    def non_sdl_input_event(controller_input, is_down):
+        TRIGGER_TIME_FOR_HOLD_BUTTONS = 2
+
+        if(is_down):
+            if(controller_input in Controller.hold_buttons):
+                if controller_input not in Controller.last_press_time_map:
+                    Controller.last_press_time_map[controller_input] = time.monotonic()   
+                else:
+                    last_press_time_length = time.monotonic() - Controller.last_press_time_map[controller_input]
+                    if(last_press_time_length > TRIGGER_TIME_FOR_HOLD_BUTTONS):
+                        PyUiLogger.get_logger().info(f"Starting special non sdl event : {controller_input}")
+                        Controller.special_non_sdl_event = True
+                        Controller.render_required_callback = lambda ci=controller_input, lpt=last_press_time_length: Device.get_device().special_input(ci, lpt)
+                        Controller.non_sdl_input = None
+                        Controller.special_non_sdl_event = False
+                        PyUiLogger.get_logger().info(f"Ending special non sdl event : {controller_input}")
+
+            else:
+                if(not Controller.is_check_for_hotkey):
+                    Device.get_device().special_input(controller_input, 0)
+                else:
+                    Controller.non_sdl_input = controller_input
+        elif(not is_down):
+            Controller.non_sdl_input = None
+            if(controller_input in Controller.hold_buttons):
+                last_press_time_length = time.monotonic() - Controller.last_press_time_map[controller_input]
+                if(last_press_time_length < TRIGGER_TIME_FOR_HOLD_BUTTONS):
+                    Device.get_device().special_input(controller_input, 0)
+
+            Controller.last_press_time_map.pop(controller_input,None)
+
+        # Volume, brightness and power keys come from their own watcher threads;
+        # whatever they changed on screen shows now.
+        Controller.request_redraw()
+
+    @staticmethod
+    def wait_for_input(wanted_inputs):
+        last_input = None
+        Controller.clear_last_input()
+        while(last_input not in wanted_inputs):
+            Controller.get_input()
+            last_input = Controller.last_input()
+
+        PyUiLogger.get_logger().debug(f"Input was : {last_input}")
+
+        return last_input

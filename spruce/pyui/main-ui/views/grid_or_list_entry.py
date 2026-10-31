@@ -1,0 +1,184 @@
+import os
+from typing import Callable, TypeVar
+
+from devices.device import Device
+from devices.miyoo.user_config import UserConfig
+from utils.cached_exists import CachedExists
+
+T = TypeVar('T')  # Generic input type
+
+class GridOrListEntry:
+    __slots__ = (
+        "primary_text",
+        "primary_text_long",
+        "value_text",
+        "image_path",
+        "image_path_selected",
+        "description",
+        "_description",
+        "_description_func",
+        "icon",
+        "value",
+        "image_path_searcher",
+        "image_path_selected_searcher",
+        "icon_searcher",
+        "extra_data",
+    )
+        
+    def __init__(
+        self,
+        primary_text,
+        value_text=None,
+        image_path=None,
+        image_path_selected=None,
+        description=None,
+        icon=None,
+        value: T = None,
+        image_path_searcher: Callable[[T], str] = None,
+        image_path_selected_searcher: Callable[[T], str] = None,
+        icon_searcher: Callable[[T], str] = None,
+        primary_text_long=None,
+        extra_data=None
+    ):        
+        self.primary_text = primary_text
+        self.primary_text_long = primary_text_long
+        self.value_text = value_text
+        self.image_path = image_path
+        self.image_path_searcher = image_path_searcher
+        self.image_path_selected_searcher = image_path_selected_searcher
+        self.icon_searcher = icon_searcher
+
+        self.image_path_selected = image_path_selected or image_path
+        self.value = value if value is not None else primary_text
+        self.icon = icon
+
+        self._description = None
+        self.extra_data = extra_data
+        if callable(description):
+            self._description_func = description
+        else:
+            self._description_func = None
+            self._description = description
+
+    def get_description(self):
+        # If description is loading asynchronously, block here until done
+        if self._description_func is not None:
+            self._description = self._description_func()
+            self._description_func = None
+
+        return self._description
+
+
+    def __str__(self) -> str:
+        return self.primary_text
+
+    def __repr__(self) -> str:
+        return f"<GridOrListEntry {self.primary_text!r}>"
+    
+    def get_image_path(self):
+        if self.image_path is None and self.image_path_searcher is not None:
+            self.image_path = self.image_path_searcher(self.value)
+            self.image_path_searcher = None
+
+        return self.image_path
+    
+    def get_image_path_selected(self):
+        if self.image_path_selected is None and self.image_path_selected_searcher is not None:
+            self.image_path_selected = self.image_path_selected_searcher(self.value)
+            self.image_path_selected_searcher = None
+        return self.image_path_selected
+        
+    def get_image_path_variant(self, image_path: str, variant_name: str):
+        if image_path is None:
+            return image_path
+
+        # Check if it contains the base "Imgs" directory
+        marker = os.path.sep + "Imgs" + os.path.sep
+        if marker in image_path:
+            variant_path = image_path.replace(
+                marker, os.path.sep + f"Imgs_{variant_name}" + os.path.sep
+            )
+
+            if CachedExists.exists(variant_path):
+                return variant_path
+
+        if("small" == variant_name):
+            return self.get_image_path_variant(image_path,"med")
+        elif("med" == variant_name):
+            return self.get_image_path_variant(image_path,"large")
+        else:
+            return image_path
+
+    def get_image_path_small(self,image_path: str):
+        return self.get_image_path_variant(image_path,"small")
+
+    def get_image_path_medium(self,image_path: str):
+        return self.get_image_path_variant(image_path, "med")
+
+    def get_image_path_large(self,image_path: str):
+        return self.get_image_path_variant(image_path, "large")
+    
+    def get_image_path_ideal(self, target_width, target_height):
+        return self.get_properly_sized_image(self.get_image_path(), target_width, target_height)
+    
+    def get_image_path_selected_ideal(self, target_width, target_height):
+        return self.get_properly_sized_image(self.get_image_path_selected(), target_width, target_height)
+
+    def get_properly_sized_image(self, image_path, target_width, target_height):
+        small_width, small_height = Device.get_device().get_boxart_small_resize_dimensions()
+        medium_width, medium_height = Device.get_device().get_boxart_medium_resize_dimensions()
+
+        if(target_width is not None and target_width <= small_width):
+            #PyUiLogger.get_logger().info(f"Going with small due to width {target_width} <= {small_width}")
+            return self.get_image_path_small(image_path)
+        elif(target_height is not None and target_height <= small_height):
+            #PyUiLogger.get_logger().info(f"Going with small due to height {target_height} <= {small_height}")
+            return self.get_image_path_small(image_path)
+        elif(target_width is not None and target_width <= medium_width):
+            #PyUiLogger.get_logger().info(f"Going with medium due to width {target_width} <= {medium_width}")
+            return self.get_image_path_medium(image_path)
+        elif(target_height is not None and target_height <= medium_height):
+            #PyUiLogger.get_logger().info(f"Going with medium due to width {target_height} <= {medium_height}")
+            return self.get_image_path_medium(image_path)
+        else :
+            #PyUiLogger.get_logger().info(f"Going with full size image. Target dimensions are  {target_width} x {target_height}")
+            return self.get_image_path_large(image_path)
+
+    def get_primary_text(self):
+        return self.primary_text
+    
+    def get_primary_text_long(self):
+        return self.primary_text_long or self.primary_text
+    
+    def get_sort_key(self):
+        text = self.get_primary_text().strip() or ""
+        lower = text.lower()
+
+        if(UserConfig.get_ignore_articles_when_sorting()):
+            for article in ("the ", "a ", "an "):
+                if lower.startswith(article):
+                    return (text[len(article):] + ", " + article.strip()).lower()
+                    
+        return lower        
+
+    def get_value_text(self):
+        return self.value_text
+    
+    def get_value(self):
+        return self.value
+    
+    def get_icon(self):
+        if self.icon is None and self.icon_searcher is not None:
+            return self.icon_searcher(self.value)
+        return self.icon
+    
+    def __eq__(self, other):
+        if not isinstance(other, GridOrListEntry):
+            return NotImplemented
+        return self.value == other.value
+
+    def get_extra_data(self):
+        return self.extra_data
+    
+    def contains_potential_icon(self):
+        return self.icon is not None or self.icon_searcher is not None

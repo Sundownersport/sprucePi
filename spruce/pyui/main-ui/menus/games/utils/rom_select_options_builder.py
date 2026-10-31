@@ -1,0 +1,421 @@
+
+
+import os
+from pathlib import Path
+from typing import Callable
+from controller.controller import Controller
+from controller.controller_inputs import ControllerInput
+from devices.device import Device
+from display.display import Display
+from games.utils.box_art_resizer import BoxArtResizer
+from games.utils.game_system import GameSystem
+from games.utils.rom_utils import RomUtils
+from menus.games.muos_game_system_config import MuosGameSystemConfig
+from menus.games.utils.cheevos_cache_manager import CheevosCacheManager
+from menus.games.utils.favorites_manager import FavoritesManager
+from menus.games.utils.miyoo_game_list import MiyooGameList
+from menus.games.utils.rom_file_name_utils import RomFileNameUtils
+from menus.games.utils.rom_info import RomInfo
+from themes.theme import Theme
+from menus.language.language import Language
+from utils.cached_exists import CachedExists
+from utils.logger import PyUiLogger
+from utils.time_logger import log_timing
+from views.grid_or_list_entry import GridOrListEntry
+from views.rom_grid_or_list_entry import RomGridOrListEntry
+
+
+class RomSelectOptionsBuilder:
+    _user_doesnt_want_to_resize = False
+
+    def __init__(self):
+        self.roms_path = Device.get_device().get_roms_dir()
+        self.rom_utils : RomUtils= RomUtils(self.roms_path)
+        # folder_name -> (xml path, mtime it was parsed at, MiyooGameList)
+        self._game_list_cache: dict[str, tuple[str, float, MiyooGameList]] = {}
+
+    def get_game_list(self, folder_name) -> MiyooGameList:
+        """The parsed gamelist for one system, reparsed when the file changes.
+
+        Favorites, Recents and Collections mix systems in one screen, so they
+        cannot build a single list the way build_rom_list does. The mtime check
+        is what lets a scrape land while MainUI is running: the scraper writes
+        gamelist.xml, and the next draw picks the new names up rather than
+        holding whatever was cached at boot.
+        """
+        path = self.rom_utils.get_miyoo_games_file(folder_name)
+        try:
+            mtime = os.path.getmtime(path) if path else 0.0
+        except OSError:
+            mtime = 0.0
+
+        cached = self._game_list_cache.get(folder_name)
+        if cached is not None and cached[0] == path and cached[1] == mtime:
+            return cached[2]
+
+        game_list = MiyooGameList(path)
+        self._game_list_cache[folder_name] = (path, mtime, game_list)
+        return game_list
+
+    def get_game_entry(self, rom_info: RomInfo):
+        """The gamelist entry for a rom, or None. Never raises."""
+        try:
+            if rom_info.game_system is None or rom_info.is_collection:
+                return None
+            return self.get_game_list(rom_info.game_system.folder_name).get_by_file_path(rom_info.rom_file_path)
+        except Exception as e:
+            PyUiLogger.get_logger().error(f"Unable to read gamelist for {rom_info.rom_file_path}: {e}")
+            return None
+
+    def resolve_display_name(self, rom_info: RomInfo, game_entry = None) -> str:
+        """What to show for a rom outside its own system's list.
+
+        gamelist.xml first, then whatever name was stored when the rom was put
+        on the list, then the filename. Reading the gamelist here rather than
+        trusting the stored name is the point: Favorites and Recents freeze a
+        name at the moment the game is added, so anything added before the
+        system was scraped kept its filename forever, and Collections never
+        stored a name at all.
+        """
+        if game_entry is None:
+            game_entry = self.get_game_entry(rom_info)
+        if game_entry is not None and game_entry.name:
+            return game_entry.name
+        if rom_info.display_name:
+            return rom_info.display_name
+        return RomFileNameUtils.get_rom_name_without_extensions(rom_info.game_system, rom_info.rom_file_path)
+
+
+    def build_fake_game_system(self, item, display_name=None, is_collection=None):
+        # Should not use muos game system config to get around this but it works for now
+        return RomInfo(GameSystem([],item,MuosGameSystemConfig(item,item)), item, display_name, is_collection)
+    
+    def get_default_image_path(self, game_system, rom_file_path):
+        parts = os.path.normpath(rom_file_path).split(os.sep)
+        try:
+            roms_index = next(i for i, part in enumerate(parts) if part.lower() == "roms")
+        except (ValueError, IndexError):
+            PyUiLogger.get_logger().info(f"Roms not found in {rom_file_path}")
+            return None  # "Roms" not in path or nothing after "Roms"
+
+        # Get the base filename without extension
+        base_name = RomFileNameUtils.get_rom_name_without_extensions(game_system, rom_file_path)
+
+        # Build path to the image using the extracted directory
+        root_dir = os.sep.join(parts[:roms_index+2])  # base path before Roms
+
+        return os.path.join(root_dir, "Imgs", base_name + ".png")
+
+    def first_existing(self, base_path_without_ext):
+        IMAGE_EXTS = (".qoi", ".png")
+        for ext in IMAGE_EXTS:
+            path = base_path_without_ext + ext
+            if CachedExists.exists(path):
+                return path
+        return None
+
+    def get_image_path(self, rom_info: RomInfo, game_entry = None, prefer_savestate_screenshot = False) -> str:
+
+        if(prefer_savestate_screenshot):
+            # Use RA savestate image
+            save_state_image_path = Device.get_device().get_save_state_image(rom_info)
+            if save_state_image_path is not None and CachedExists.exists(save_state_image_path):
+                return save_state_image_path
+
+
+        # A <game> in gamelist.xml with no <image> yields image=None, and
+        # CachedExists.exists(None) raises TypeError out of os.path.normpath.
+        # This is reached lazily while the ROM grid draws, outside any handler,
+        # so an unscraped entry takes the whole list down. "" is not safe
+        # either: normpath("") is ".", which exists.
+        if(game_entry is not None and game_entry.image):
+            if(CachedExists.exists(game_entry.image)):
+                return game_entry.image
+
+        # [Added] If the original ext files are not available, change it to .qoi and check again.
+            if Device.get_device().supports_qoi() and game_entry.image:
+                qoi_path = os.path.splitext(game_entry.image)[0] + ".qoi"
+                if CachedExists.exists(qoi_path):
+                    return qoi_path
+
+        # Get the base filename without extension
+        base_name = RomFileNameUtils.get_rom_name_without_extensions(rom_info.game_system, rom_info.rom_file_path)
+
+        # Normalize and split the path into components
+        parts = os.path.normpath(rom_info.rom_file_path).split(os.sep)
+
+        try:
+            roms_index = next(i for i, part in enumerate(parts) if part.lower() == "roms")
+        except (ValueError, IndexError):
+            PyUiLogger.get_logger().info(f"Roms not found in {rom_info.rom_file_path}")
+            return None
+
+        # Expected layout: ... /Roms/<system>/...
+        if roms_index + 2 >= len(parts):
+            return None  # No system or filename
+
+        system_index = roms_index + 1  # MD
+        system_dir = parts[system_index]
+
+        # Path pieces after the system folder (subfolders + filename)
+        relative_parts = parts[system_index + 1 : -1]
+
+        images_folder_name = Device.get_device().get_game_images_folder_name()
+
+        # Build mirrored Imgs path
+        mirrored_path_base = os.path.join(
+            os.sep.join(parts[:system_index + 1]),  # Folder/Roms/MD
+            images_folder_name,
+            *relative_parts,
+            base_name
+        )
+
+        mirrored_qoi_path = mirrored_path_base + ".qoi"
+
+        if CachedExists.exists(mirrored_qoi_path) and Device.get_device().supports_qoi():
+            return mirrored_qoi_path
+
+        # ---- Fallback to old behavior (top-level image) ----
+        flat_root = os.path.join(os.sep.join(parts[:system_index + 1]), images_folder_name, base_name)
+        flat_qoi_path = flat_root+ ".qoi"
+
+        if CachedExists.exists(flat_qoi_path) and Device.get_device().supports_qoi():
+            return flat_qoi_path
+        
+        NON_QOI_EXTS = (".png", ".jpg", ".jpeg", ".webp", ".bmp") 
+
+        # Each entry is: (non_qoi_base, qoi_base)
+        PATH_VARIANTS = (
+            (mirrored_path_base, mirrored_qoi_path),
+            (flat_root,          flat_qoi_path),
+        )
+
+        image_non_qoi_path = None
+        image_qoi_path = None
+
+        for base_path, qoi_path in PATH_VARIANTS:
+            for ext in NON_QOI_EXTS:
+                candidate = base_path + ext
+                if CachedExists.exists(candidate):
+                    image_non_qoi_path = candidate
+                    image_qoi_path = qoi_path
+                    break
+            if image_non_qoi_path:
+                break
+
+        if image_non_qoi_path is not None:
+            if(Device.get_device().supports_qoi()):
+                if(not RomSelectOptionsBuilder._user_doesnt_want_to_resize):
+                    if(Device.get_device().get_system_config().never_prompt_boxart_resize()):
+                        RomSelectOptionsBuilder._user_doesnt_want_to_resize = True
+                    else:
+                        Display.display_message_multiline([
+                            Language.label("optimizeBoxartPrompt1", "Would you like to optimize boxart?"),
+                            Language.label("optimizeBoxartPrompt2", "Originals will be converted, be sure to backup!"),
+                            Language.label("optimizeBoxartPrompt3", "A = Yes, B = No, X/Y = Never Prompt"),
+                            "",
+                            Language.label("optimizeBoxartPrompt4", "You can manually do this in:"),
+                            Language.label("optimizeBoxartPrompt5", "Settings -> Tasks -> Optimize Boxart"),
+                        ], 0)
+                        input = Controller.wait_for_input([ControllerInput.A,ControllerInput.B,ControllerInput.X,ControllerInput.Y])
+                        
+                        if(input == ControllerInput.B):
+                            RomSelectOptionsBuilder._user_doesnt_want_to_resize = True
+                        elif(input == ControllerInput.X or input == ControllerInput.Y):
+                            Device.get_device().get_system_config().set_never_prompt_boxart_resize(True)
+                            RomSelectOptionsBuilder._user_doesnt_want_to_resize = True
+
+                if(not RomSelectOptionsBuilder._user_doesnt_want_to_resize):
+                    RomSelectOptionsBuilder._user_doesnt_want_to_resize = True
+                    BoxArtResizer.process_rom_folders()
+                if CachedExists.exists(image_qoi_path) and Device.get_device().supports_qoi():
+                    return image_qoi_path
+                else:
+                    return image_non_qoi_path
+            else:
+                return image_non_qoi_path
+
+        
+        # Attempt to construct alternate path by replacing "Roms" with "Imgs"
+        imgs_older_equal_to_roms_parts = parts.copy()
+        imgs_older_equal_to_roms_parts[roms_index] = images_folder_name
+
+        # Imgs folder equal to roms path
+        path = self.first_existing(
+            os.path.join(os.sep.join(imgs_older_equal_to_roms_parts[:-1]), base_name)
+        )
+        if path:
+            return path
+
+        root_dir = os.sep.join(parts[:roms_index + 2])  # base path before Roms
+
+        # Same dir as rom
+        path = self.first_existing(os.path.join(root_dir, base_name))
+        if path:
+            return path
+
+        # muOS SD2
+        path = self.first_existing(
+            os.path.join(
+                "/mnt/sdcard/MUOS/info/catalogue/",
+                rom_info.game_system.game_system_config.system_name,
+                "box",
+                base_name
+            )
+        )
+        if path:
+            return path
+
+        # muOS SD1
+        path = self.first_existing(
+            os.path.join(
+                "/mnt/mmc/MUOS/info/catalogue/",
+                rom_info.game_system.game_system_config.system_name,
+                "box",
+                base_name
+            )
+        )
+        if path:
+            return path
+
+        # ES format
+        path = self.first_existing(
+            os.path.join(root_dir, images_folder_name, base_name + "-image")
+        )
+        if path:
+            PyUiLogger.get_logger().debug(f"Image path is {path}")
+            return path
+
+        # ES format 2
+        path = self.first_existing(
+            os.path.join(root_dir, images_folder_name, base_name + "-thumb")
+        )
+        if path:
+            return path
+
+        # ES format same folder
+        path = self.first_existing(
+            os.path.join(os.sep.join(imgs_older_equal_to_roms_parts[:-1]), base_name + "-image")
+        )
+        if path:
+            return path
+
+        # ES format 2 same folder
+        path = self.first_existing(
+            os.path.join(os.sep.join(imgs_older_equal_to_roms_parts[:-1]), base_name + "-thumb")
+        )
+        if path:
+            return path
+
+
+        #File itself is a png
+        if rom_info.rom_file_path.lower().endswith(".png"):
+            return rom_info.rom_file_path
+        
+        if(not prefer_savestate_screenshot):
+            # Use RA savestate image
+            save_state_image_path = Device.get_device().get_save_state_image(rom_info)
+            if save_state_image_path is not None and CachedExists.exists(save_state_image_path):
+                return save_state_image_path
+        
+        return None
+
+    def _build_favorites_dict(self):
+        favorites = Device.get_device().parse_favorites()
+        favorite_paths = []
+        for favorite in favorites:
+            favorite_paths.append(str(Path(favorite.rom_path).resolve()))
+
+        return favorite_paths
+
+    def _get_favorite_icon(self, rom_info: RomInfo) -> str:
+        
+        if CheevosCacheManager.is_pending(rom_info):
+            return Theme.cheevos_icon()
+        
+        if FavoritesManager.is_favorite(rom_info):
+            return Theme.favorite_icon()
+        else:
+            return None
+        
+
+    def build_rom_list(self, game_system,filter: Callable[[str, str, str], bool] = lambda a,b,c: True, subfolder = None,
+                       prefer_savestate_screenshot: bool = False) -> list[GridOrListEntry]:
+        with log_timing("self.rom_utils.get_roms", PyUiLogger.get_logger()):    
+            # Get valid files and folders once
+            valid_files, valid_folders = self.rom_utils.get_roms(game_system, subfolder)
+
+        with log_timing("build_rom_list", PyUiLogger.get_logger()):    
+            file_rom_list = []
+            folder_rom_list = []
+            miyoo_game_list = self.get_game_list(game_system.folder_name)
+
+            append_file = file_rom_list.append
+            append_folder = folder_rom_list.append
+            get_by_file_path = miyoo_game_list.get_by_file_path
+            get_name_no_ext = RomFileNameUtils.get_rom_name_without_extensions
+            get_image_path = self.get_image_path
+            get_favorite_icon = self._get_favorite_icon
+            folder_name = game_system.folder_name
+
+            # Process valid files
+            for rom_file_path in valid_files:
+                rom_file_name = os.path.basename(rom_file_path)
+
+                game_entry = get_by_file_path(rom_file_path)
+                # A <game> with no <name> gives name=None, which reaches
+                # get_sort_key() -> .strip() and takes the whole list down.
+                # Fall back exactly as a missing entry already does.
+                display_name = game_entry.name if (game_entry and game_entry.name) else get_name_no_ext(game_system, rom_file_path)
+
+                if not filter(rom_file_name, rom_file_path, display_name):
+                    continue
+
+                append_file(
+                    RomGridOrListEntry(
+                        display_name=display_name,
+                        game_system=game_system,
+                        rom_file_path=rom_file_path,
+                        folder_name=folder_name,
+                        game_entry=game_entry,
+                        prefer_savestate_screenshot=prefer_savestate_screenshot,
+                        get_image_path_fn=get_image_path,
+                        get_favorite_icon=get_favorite_icon
+                    )
+                )
+
+            # Process valid folders
+            for rom_file_path in valid_folders:
+                rom_file_name = os.path.basename(rom_file_path)
+                game_entry = get_by_file_path(rom_file_path)
+                display_name = game_entry.name if (game_entry and game_entry.name) else rom_file_name
+
+                if not filter(rom_file_name, rom_file_path, display_name):
+                    continue
+
+                append_folder(
+                    RomGridOrListEntry(
+                        display_name=display_name,
+                        game_system=game_system,
+                        rom_file_path=rom_file_path,
+                        folder_name=folder_name,
+                        game_entry=game_entry,
+                        prefer_savestate_screenshot=prefer_savestate_screenshot,
+                        get_image_path_fn=get_image_path,
+                        get_favorite_icon=get_favorite_icon
+                    )
+                )
+
+            # Sort once
+            file_rom_list.sort(key=lambda entry: entry.get_sort_key())
+            folder_rom_list.sort(key=lambda entry: entry.get_sort_key())
+
+            return folder_rom_list + file_rom_list
+
+_rom_select_options_builder_instance = None
+
+def get_rom_select_options_builder():
+    global _rom_select_options_builder_instance
+    if _rom_select_options_builder_instance is None:
+        _rom_select_options_builder_instance = RomSelectOptionsBuilder()
+    return _rom_select_options_builder_instance

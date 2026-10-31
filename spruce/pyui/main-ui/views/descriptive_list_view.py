@@ -1,0 +1,241 @@
+import time
+from typing import List
+from devices.device import Device
+from display.display import Display
+from display.font_purpose import FontPurpose
+from display.render_mode import RenderMode
+from display.resize_type import ResizeType
+from themes.theme import Theme
+from utils.logger import PyUiLogger
+from views.grid_or_list_entry import GridOrListEntry
+from views.list_view import ListView
+from views.text_utils import TextUtils
+
+class DescriptiveListView(ListView):
+
+    def __init__(self, top_bar_text,
+                 options: List[GridOrListEntry], selected_bg, selected : int = 0,
+                 icon_and_desc_use_image_in_place_of_icon=None):
+        super().__init__()
+        self.use_icons_to_calculate_line_height = False
+        self.icon_and_desc_use_image_in_place_of_icon = icon_and_desc_use_image_in_place_of_icon
+        self.top_bar_text = top_bar_text
+        self.set_options(options)
+        self.selected : int = selected
+
+        self.selected_bg = selected_bg
+        self.each_entry_width, self.each_entry_height = Display.get_image_dimensions(selected_bg)
+        if(Theme.get_use_text_for_line_height()):
+            self.each_entry_height = self._calculate_line_height(include_description_line=True)   
+
+
+        usable = Display.get_usable_screen_height(force_include_top_bar=True) / self.each_entry_height
+        PyUiLogger.get_logger().info(f"usable_screen_height = {Display.get_usable_screen_height(force_include_top_bar=True)}")
+        PyUiLogger.get_logger().info(f"self.each_entry_height = {self.each_entry_height}")
+        PyUiLogger.get_logger().info(f"usable = {usable}")
+
+        self.max_rows = int(usable + (1 if usable % 1 >= 0.80 else 0))
+
+        self.current_top = 0
+        self.current_bottom = min(self.max_rows,len(options))
+        self.center_selection()
+        self.scroll_value_text_amount = 0
+        self.last_selected = -1
+        self.selected_same_entry_time = time.time()
+        self.cut_titles = {}
+        self.value_widths = {}
+        self.contains_any_icons = False
+        if(icon_and_desc_use_image_in_place_of_icon):
+            self.contains_any_icons = True # assume icons if we're using the images for icons
+        else:
+            for entry in options:
+                if entry.contains_potential_icon():
+                    self.contains_any_icons = True
+
+    def get_row_geometry(self):
+        # _render starts at the same offset and steps by the selected-bg height
+        return Display.get_top_bar_height(force_include_top_bar = True) + 5, self.each_entry_height
+
+    def set_options(self, options):
+        self.options = options
+        self.options_are_sorted = self.is_alphabetized(options)
+
+    def options_are_alphabetized(self):
+        return self.options_are_sorted
+    
+    def _cut_title(self, text, max_width):
+        # The title, or the longest start of it that fits with "..." after it
+        key = (text, max_width)
+        cut = self.cut_titles.get(key)
+        if(cut is None):
+            if(len(self.cut_titles) >= 1000):
+                self.cut_titles.clear()
+            purpose = FontPurpose.DESCRIPTIVE_LIST_TITLE
+            cut = text
+            if(Display.get_text_width_from_glyphs(purpose, text) > max_width):
+                room = max_width - Display.get_text_width_from_glyphs(purpose, "...")
+                cut = text[:Display.count_chars_that_fit(purpose, text, room)].rstrip() + "..."
+            self.cut_titles[key] = cut
+        return cut
+
+    def _get_value_width(self, text):
+        # Exact width, to line values up on the right; measured once per text
+        width = self.value_widths.get(text)
+        if(width is None):
+            if(len(self.value_widths) >= 1000):
+                self.value_widths.clear()
+            width, _ = Display.get_text_dimensions(FontPurpose.DESCRIPTIVE_LIST_TITLE, text)
+            self.value_widths[text] = width
+        return width
+
+    def _scroll_title(self, text, max_width):
+        # The title moved on by the scroll amount, wrapping round, cut to just past max_width
+        looped_text = text + " " * 8
+        start = self.scroll_value_text_amount % len(looped_text)
+        shown = looped_text[start:] + looped_text[:start]
+        return shown[:Display.count_chars_that_fit(FontPurpose.DESCRIPTIVE_LIST_TITLE, shown, max_width) + 1]
+
+    def _render(self):
+        visible_options: List[GridOrListEntry] = self.options[self.current_top:self.current_bottom]
+
+        row_offset_x = Theme.get_descriptive_list_icon_offset_x()
+        #TODO get padding from theme
+        row_offset_y = Display.get_top_bar_height(force_include_top_bar = True) + 5
+        
+        if self.last_selected != self.selected:
+            self.selected_same_entry_time = time.perf_counter()
+            self.scroll_value_text_amount = 0
+            self.last_selected = self.selected
+            self.last_scroll_value_time = self.selected_same_entry_time
+        else:
+            now = time.perf_counter()
+            elapsed = now - self.selected_same_entry_time
+
+            if elapsed >= 1.0:  # Initial 1-second delay
+                if now - self.last_scroll_value_time >= 0.066:
+                    self.scroll_value_text_amount += 1
+                    self.last_scroll_value_time = now
+
+
+        for visible_index, (gridOrListEntry) in enumerate(visible_options):
+            actual_index = self.current_top + visible_index
+            if(self.icon_and_desc_use_image_in_place_of_icon):
+                iconPath = gridOrListEntry.get_image_path()
+            else:
+                iconPath = gridOrListEntry.get_icon()
+
+            if actual_index == self.selected:
+                Display.render_image(
+                    self.selected_bg, 
+                    0, 
+                    row_offset_y,
+                    target_width=Device.get_device().screen_width(),
+                    target_height=self.each_entry_height,
+                    resize_type= ResizeType.ZOOM
+                    )
+                
+            icon_w = 0
+            icon_h = 0
+            target_icon_w = int(self.each_entry_width*0.125)
+            if(not self.contains_any_icons):
+                target_icon_w = 0
+            if(iconPath is not None):
+                icon_w, icon_h = Display.render_image(iconPath, 
+                                    row_offset_x + target_icon_w//2, 
+                                    row_offset_y + self.each_entry_height//2,
+                                    render_mode = RenderMode.MIDDLE_CENTER_ALIGNED, 
+                                    target_width=target_icon_w, 
+                                    target_height=int(self.each_entry_height*0.90))
+                
+            icon_w = target_icon_w
+
+            color = Theme.text_color_selected(FontPurpose.DESCRIPTIVE_LIST_TITLE) if actual_index == self.selected else Theme.text_color(FontPurpose.DESCRIPTIVE_LIST_TITLE)
+            title_y_offset = row_offset_y + Theme.get_descriptive_list_text_offset_y()
+            title_render_mode = RenderMode.TOP_LEFT_ALIGNED
+            if(gridOrListEntry.get_description() is None):
+                title_y_offset = row_offset_y + self.each_entry_height // 2
+                title_render_mode = RenderMode.MIDDLE_LEFT_ALIGNED
+            elif (Theme.get_use_text_for_line_height()):
+                # Make the distance between the title and description less when using smaller rows
+                title_y_offset = row_offset_y + Theme.get_descriptive_list_text_offset_y() + Theme.scale_with_height_multiplier(5)
+
+            text_offset = Theme.get_descriptive_list_text_from_icon_offset()
+            title_x = row_offset_x + icon_w + text_offset
+            title_right_edge = Device.get_device().screen_width() - text_offset
+
+            value_text = gridOrListEntry.get_value_text()
+            if(value_text is not None):
+                max_value_text_length = Theme.scale_with_width_multiplier(25)
+                
+                if(len(value_text) > max_value_text_length):
+                    value_text = value_text[1:-1].strip()
+                    if actual_index == self.selected:
+                        value_text = TextUtils.scroll_string_chars(text=value_text,
+                                                amt=self.scroll_value_text_amount,
+                                                max_chars=max_value_text_length)
+                    else:
+                        value_text = value_text[:max_value_text_length-3] + "..."
+
+                    value_text = "< " + value_text + " >"
+
+                value_width = self._get_value_width(value_text)
+                title_right_edge -= value_width + text_offset
+
+            # Titles that fit their room are left alone. Longer ones end with "...",
+            # and the selected one scrolls after a second.
+            primary_text = gridOrListEntry.get_primary_text()
+            title_room = title_right_edge - title_x
+            title_crop_w = None
+            if(primary_text):
+                cut_text = self._cut_title(primary_text, title_room)
+                if(cut_text != primary_text and actual_index == self.selected and self.scroll_value_text_amount > 0):
+                    primary_text = self._scroll_title(primary_text, title_room)
+                    title_crop_w = title_room
+                else:
+                    primary_text = cut_text
+
+            title_w, title_h = Display.render_text(
+                primary_text,
+                title_x,
+                title_y_offset,
+                color,
+                FontPurpose.DESCRIPTIVE_LIST_TITLE,
+                render_mode=title_render_mode,
+                crop_w=title_crop_w)
+
+            if(value_text is not None):
+                if(Theme.get_use_text_for_line_height()):
+                    value_y = title_y_offset
+                    value_render_mode = title_render_mode
+                    value_x = Device.get_device().screen_width() - Theme.get_descriptive_list_text_from_icon_offset() - value_width
+                else:
+                    value_x = Device.get_device().screen_width() - Theme.get_descriptive_list_text_from_icon_offset()
+                    value_y = row_offset_y + self.each_entry_height // 2
+                    value_render_mode = RenderMode.MIDDLE_RIGHT_ALIGNED
+
+                Display.render_text(
+                    value_text, 
+                    value_x, 
+                    value_y, 
+                    color, 
+                    FontPurpose.DESCRIPTIVE_LIST_TITLE,
+                    value_render_mode)
+
+            color = Theme.text_color_selected(FontPurpose.DESCRIPTIVE_LIST_DESCRIPTION) if actual_index == self.selected else Theme.text_color(FontPurpose.DESCRIPTIVE_LIST_DESCRIPTION)
+            if(gridOrListEntry.get_description() is not None):
+                description_max_width = Theme.scale_with_width_multiplier(70)
+                description_text = gridOrListEntry.get_description()
+                if(len(description_text) > description_max_width and actual_index == self.selected):
+                    description_text = TextUtils.scroll_string_chars(text=description_text,
+                                            amt=self.scroll_value_text_amount,
+                                            max_chars=description_max_width)
+
+                text_w, text_h = Display.render_text(
+                    description_text, 
+                    row_offset_x + icon_w + Theme.get_descriptive_list_text_from_icon_offset(), 
+                    row_offset_y + Theme.get_descriptive_list_text_offset_y() + title_h, 
+                    color, 
+                    FontPurpose.DESCRIPTIVE_LIST_DESCRIPTION)
+
+            row_offset_y += self.each_entry_height
+            
