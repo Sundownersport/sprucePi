@@ -1,0 +1,28 @@
+{
+  "label": "Satella",
+  "icon": "satella.png",
+  "iconsel": "satella_sel.png",
+  "themecolor": "FF0000",
+  "launch": "../../spruce/scripts/emu/standard_launch.sh",
+  "extlist": "zip|7z|bs|sfc|smc|swc|fig|st",
+  "launchlist": [],
+  "menuOptions": {
+    "Governor": {
+      "display": "CPU Mode",
+      "options": [
+        "Smart",
+        "Performance",
+        "Overclock"
+      ],
+      "selected": "Smart",
+      "overrides": {}
+    }
+  },
+  "sortOrder": 5400,
+  "brand": "Nintendo",
+  "type": "homeconsole",
+  "releaseYear": 1995,
+  "default_emulator": "snes9x",
+  "scaling_min_freq": 1008000,
+  "alternativeFolderNames": ["BSX","SATELLA","bsx","satella","satellaview"]
+}

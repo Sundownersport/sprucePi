@@ -1,0 +1,69 @@
+{
+  "label": "SNES",
+  "icon": "sfc.png",
+  "iconsel": "sfc_sel.png",
+  "themecolor": "FF0000",
+  "launch": "../../spruce/scripts/emu/standard_launch.sh",
+  "extlist": "zip|7z|smc|sfc|fig|gd3|gd7|dx2|bsx|bs|swc|st",
+  "launchlist": [],
+  "menuOptions": {
+    "Governor": {
+      "display": "CPU Mode",
+      "options": [
+        "Smart",
+        "Performance",
+        "Overclock"
+      ],
+      "selected": "Smart",
+      "overrides": {}
+    },
+    "Emulator": {
+      "display": "Retroarch Core",
+      "options": [
+        "chimerasnes",
+        "mednafen_supafaust",
+        "snes9x"
+      ],
+      "selected": "mednafen_supafaust",
+      "overrides": {},
+      "devices": [
+        "MIYOO_A30",
+        "MIYOO_FLIP",
+        "TRIMUI_A133P",
+        "TRIMUI_SMART_PRO_S",
+        "GKD_PIXEL2",
+        "ANBERNIC_RGXX",
+        "MAGICX_A133P",
+        "DARKMOSS"
+      ]
+    },
+    "Emulator_MiyooMini": {
+      "display": "Retroarch Core",
+      "options": [
+        "mednafen_supafaust",
+        "snes9x",
+        "snes9x2010"
+      ],
+      "selected": "snes9x2010",
+      "overrides": {},
+      "devices": [
+        "MIYOO_MINI_FAMILY"
+      ]
+    }
+  },
+  "sortOrder": 6200,
+  "brand": "Nintendo",
+  "type": "homeconsole",
+  "releaseYear": 1990,
+  "default_emulator": "chimerasnes",
+  "scaling_min_freq": 816000,
+  "alternativeFolderNames": [
+    "sfc",
+    "SNES",
+    "snes",
+    "supernes",
+    "SUPERNES",
+    "SUPERFAMICOM",
+    "superfamicom"
+  ]
+}

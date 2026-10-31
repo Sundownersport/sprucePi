@@ -1,0 +1,28 @@
+{
+  "label": "Atari 800",
+  "icon": "atari800.png",
+  "iconsel": "atari800_sel.png",
+  "themecolor": "9f3a35",
+  "launch": "../../spruce/scripts/emu/standard_launch.sh",
+  "extlist": "zip|7z|xfd|atr|cdm|cas|bin|a52|atx|car|com|xex",
+  "launchlist": [],
+  "menuOptions": {
+    "Governor": {
+      "display": "CPU Mode",
+      "options": [
+        "Smart",
+        "Performance",
+        "Overclock"
+      ],
+      "selected": "Smart",
+      "overrides": {}
+    }
+  },
+  "sortOrder": 800,
+  "brand": "Atari",
+  "type": "homeconsole",
+  "releaseYear": 1979,
+  "default_emulator": "atari800",
+  "scaling_min_freq": 480000,
+  "alternativeFolderNames": ["eighthundred","800","a800","atari800","A800","ATARI800"]
+}

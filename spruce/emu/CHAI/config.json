@@ -1,0 +1,28 @@
+{
+  "label": "ChaiLove",
+  "icon": "chai.png",
+  "iconsel": "chai_sel.png",
+  "themecolor": "e74999",
+  "launch": "../../spruce/scripts/emu/standard_launch.sh",
+  "extlist": "chailove",
+  "launchlist": [],
+  "menuOptions": {
+    "Governor": {
+      "display": "CPU Mode",
+      "options": [
+        "Smart",
+        "Performance",
+        "Overclock"
+      ],
+      "selected": "Smart",
+      "overrides": {}
+    }
+  },
+  "sortOrder": 1200,
+  "brand": "modernengine",
+  "type": "Other",
+  "releaseYear": 2016,
+  "default_emulator": "chailove",
+  "scaling_min_freq": 1008000,
+  "alternativeFolderNames": ["chai", "Chai Love", "chailove"]
+}

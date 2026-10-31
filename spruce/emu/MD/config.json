@@ -1,0 +1,37 @@
+{
+  "label": "Genesis",
+  "icon": "md.png",
+  "iconsel": "md_sel.png",
+  "themecolor": "0088CF",
+  "launch": "../../spruce/scripts/emu/standard_launch.sh",
+  "extlist": "zip|7z|gen|smd|md|32x|bin|iso|sms|68k|chd",
+  "launchlist": [],
+  "menuOptions": {
+    "Governor": {
+      "display": "CPU Mode",
+      "options": [
+        "Smart",
+        "Performance",
+        "Overclock"
+      ],
+      "selected": "Smart",
+      "overrides": {}
+    },
+    "Emulator": {
+      "display": "Retroarch Core",
+      "options": [
+        "picodrive",
+        "genesis_plus_gx"
+      ],
+      "selected": "picodrive",
+      "overrides": {}
+    }
+  },
+  "sortOrder": 3000,
+  "brand": "Sega",
+  "type": "homeconsole",
+  "releaseYear": 1988,
+  "default_emulator": "picodrive",
+  "scaling_min_freq": 648000,
+  "alternativeFolderNames": ["GENESIS","md","megadrive","MEGADRIVE"]
+}

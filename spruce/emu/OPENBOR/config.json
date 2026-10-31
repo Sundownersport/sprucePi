@@ -1,0 +1,28 @@
+{
+  "label": "OpenBOR",
+  "icon": "openbor.png",
+  "iconsel": "openbor_sel.png",
+  "themecolor": "FFFF00",
+  "launch": "../../spruce/scripts/emu/standard_launch.sh",
+  "extlist": "pak",
+  "launchlist": [],
+  "menuOptions": {
+    "Governor": {
+      "display": "CPU Mode",
+      "options": [
+        "Smart",
+        "Performance",
+        "Overclock"
+      ],
+      "selected": "Smart",
+      "overrides": {}
+    }
+  },
+  "sortOrder": 4700,
+  "brand": "modernengine",
+  "type": "fantasy",
+  "releaseYear": 2005,
+  "default_emulator": "OpenBOR",
+  "scaling_min_freq": 1008000,
+  "alternativeFolderNames": ["openbor","OpenBOR"]
+}

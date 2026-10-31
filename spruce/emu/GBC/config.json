@@ -1,0 +1,38 @@
+{
+  "label": "GBC",
+  "icon": "gbc.png",
+  "iconsel": "gbc_sel.png",
+  "themecolor": "FFB800",
+  "launch": "../../spruce/scripts/emu/standard_launch.sh",
+  "extlist": "gb|gbc|zip|7z|bin|dmg",
+  "launchlist": [],
+  "menuOptions": {
+    "Governor": {
+      "display": "CPU Mode",
+      "options": [
+        "Smart",
+        "Performance",
+        "Overclock"
+      ],
+      "selected": "Smart",
+      "overrides": {}
+    },
+    "Emulator": {
+      "display": "Retroarch Core",
+      "options": [
+        "gambatte",
+        "mgba",
+        "armgba"
+      ],
+      "selected": "gambatte",
+      "overrides": {}
+    }
+  },
+  "sortOrder": 2900,
+  "brand": "Nintendo",
+  "type": "handheld",
+  "releaseYear": 1998,
+  "default_emulator": "gambatte",
+  "scaling_min_freq": 312000,
+  "alternativeFolderNames": ["GAMEBOYCOLOR","gameboycolor","gbc","cgb","CGB"]
+}

@@ -1,0 +1,42 @@
+{
+  "label": "Sega CD",
+  "icon": "segacd.png",
+  "iconsel": "segacd_sel.png",
+  "themecolor": "e3e3e3",
+  "launch": "../../spruce/scripts/emu/standard_launch.sh",
+  "extlist": "chd|m3u|zip|7z|gen|smd|md|32x|cue|iso|sms|68k",
+  "launchlist": [
+    {
+      "name": "Generate M3U playlists for multi-disc games",
+      "launch": "/mnt/SDCARD/spruce/scripts/emu/m3u_generator.sh"
+    }
+  ],
+  "menuOptions": {
+    "Governor": {
+      "display": "CPU Mode",
+      "options": [
+        "Smart",
+        "Performance",
+        "Overclock"
+      ],
+      "selected": "Smart",
+      "overrides": {}
+    },
+    "Emulator": {
+      "display": "Retroarch Core",
+      "options": [
+        "picodrive",
+        "genesis_plus_gx"
+      ],
+      "selected": "picodrive",
+      "overrides": {}
+    }
+  },
+  "sortOrder": 5800,
+  "brand": "Sega",
+  "type": "homeconsole",
+  "releaseYear": 1991,
+  "default_emulator": "picodrive",
+  "scaling_min_freq": 816000,
+  "alternativeFolderNames": ["segacd","mdcd","MDCD","megacd","MEGACD"]
+}

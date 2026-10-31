@@ -5,7 +5,12 @@ Conflicts=lightdm.service
 
 [Service]
 Type=idle
-ExecStartPre=/opt/spruce/scripts/mount-data.sh
+User=spruce
+PAMName=login
+TimeoutStartSec=infinity
+ExecStartPre=+/opt/spruce/scripts/mount-data.sh
+ExecStartPre=+/opt/spruce/scripts/wait-input.sh
+ExecStartPre=+/opt/spruce/scripts/console-blank.sh
 ExecStart=/opt/spruce/scripts/session.sh
 Restart=on-failure
 RestartSec=3
@@ -13,6 +18,7 @@ StandardInput=tty
 StandardOutput=journal
 StandardError=journal
 TTYPath=/dev/tty1
+UtmpIdentifier=tty1
 TTYReset=yes
 TTYVHangup=yes
 

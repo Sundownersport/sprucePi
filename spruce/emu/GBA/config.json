@@ -1,0 +1,38 @@
+{
+  "label": "GBA",
+  "icon": "gba.png",
+  "iconsel": "gba_sel.png",
+  "themecolor": "FF00FF",
+  "launch": "../../spruce/scripts/emu/standard_launch.sh",
+  "extlist": "gba|zip|7z|bin",
+  "launchlist": [],
+  "menuOptions": {
+    "Governor": {
+      "display": "CPU Mode",
+      "options": [
+        "Smart",
+        "Performance",
+        "Overclock"
+      ],
+      "selected": "Smart",
+      "overrides": {}
+    },
+    "Emulator": {
+      "display": "Retroarch Core",
+      "options": [
+        "armgba",
+        "gpsp",
+        "mgba"
+      ],
+      "selected": "armgba",
+      "overrides": {}
+    }
+  },
+  "sortOrder": 2800,
+  "brand": "Nintendo",
+  "type": "handheld",
+  "releaseYear": 2001,
+  "default_emulator": "armgba",
+  "scaling_min_freq": 816000,
+  "alternativeFolderNames": ["GAMEBOYADVANCE","gameboyadvance","gba","agb","AGB"]
+}

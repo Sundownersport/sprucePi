@@ -1,0 +1,28 @@
+{
+  "label": "Atari 5200",
+  "icon": "5200.png",
+  "iconsel": "5200_sel.png",
+  "themecolor": "6187e5",
+  "launch": "../../spruce/scripts/emu/standard_launch.sh",
+  "extlist": "a52|zip|7z|atr|bin",
+  "launchlist": [],
+  "menuOptions": {
+    "Governor": {
+      "display": "CPU Mode",
+      "options": [
+        "Smart",
+        "Performance",
+        "Overclock"
+      ],
+      "selected": "Smart",
+      "overrides": {}
+    }
+  },
+  "sortOrder": 600,
+  "brand": "Atari",
+  "type": "homeconsole",
+  "releaseYear": 1982,
+  "default_emulator": "a5200",
+  "scaling_min_freq": 312000,
+  "alternativeFolderNames": ["ATARI5200","A5200","atari5200","a5200","fiftytwohundred"]
+}

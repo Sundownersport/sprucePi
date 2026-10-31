@@ -1,0 +1,28 @@
+{
+  "label": "Quake",
+  "icon": "quake.png",
+  "iconsel": "quake_sel.png",
+  "themecolor": "d7660f",
+  "launch": "../../spruce/scripts/emu/standard_launch.sh",
+  "extlist": "fbl|pak",
+  "launchlist": [],
+  "menuOptions": {
+    "Governor": {
+      "display": "CPU Mode",
+      "options": [
+        "Smart",
+        "Performance",
+        "Overclock"
+      ],
+      "selected": "Smart",
+      "overrides": {}
+    }
+  },
+  "sortOrder": 5300,
+  "brand": "modernengine",
+  "type": "fantasy",
+  "releaseYear": 1996,
+  "default_emulator": "tyrquake",
+  "scaling_min_freq": 816000,
+  "alternativeFolderNames": ["quake","TYRQUAKE","tyrquake"]
+}

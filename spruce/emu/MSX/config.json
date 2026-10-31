@@ -1,0 +1,37 @@
+{
+  "label": "MSX",
+  "icon": "msx.png",
+  "iconsel": "msx_sel.png",
+  "themecolor": "0080ff",
+  "launch": "../../spruce/scripts/emu/standard_launch.sh",
+  "extlist": "zip|7z|rom|mx1|mx2|dsk|cas|m3u",
+  "launchlist": [],
+  "menuOptions": {
+    "Governor": {
+      "display": "CPU Mode",
+      "options": [
+        "Smart",
+        "Performance",
+        "Overclock"
+      ],
+      "selected": "Smart",
+      "overrides": {}
+    },
+    "Emulator": {
+      "display": "Retroarch Core",
+      "options": [
+        "bluemsx",
+        "fmsx"
+      ],
+      "selected": "bluemsx",
+      "overrides": {}
+    }
+  },
+  "sortOrder": 3800,
+  "brand": "Misc",
+  "type": "pc",
+  "releaseYear": 1983,
+  "default_emulator": "bluemsx",
+  "scaling_min_freq": 408000,
+  "alternativeFolderNames": ["MSX2","msx","msx2","MSX1","msx1"]
+}

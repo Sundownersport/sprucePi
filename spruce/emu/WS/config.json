@@ -1,0 +1,28 @@
+{
+  "label": "WndrSwan",
+  "icon": "ws.png",
+  "iconsel": "ws_sel.png",
+  "themecolor": "ff0000",
+  "launch": "../../spruce/scripts/emu/standard_launch.sh",
+  "extlist": "ws|wsc|zip|7z|pc2",
+  "launchlist": [],
+  "menuOptions": {
+    "Governor": {
+      "display": "CPU Mode",
+      "options": [
+        "Smart",
+        "Performance",
+        "Overclock"
+      ],
+      "selected": "Smart",
+      "overrides": {}
+    }
+  },
+  "sortOrder": 7300,
+  "brand": "Bandai",
+  "type": "handheld",
+  "releaseYear": 1999,
+  "default_emulator": "mednafen_wswan",
+  "scaling_min_freq": 648000,
+  "alternativeFolderNames": ["ws","wonderswan","WONDERSWAN"]
+}

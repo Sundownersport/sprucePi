@@ -2,11 +2,7 @@
 # Runs PyUI, then whatever it staged in /tmp/cmd_to_run.sh, then PyUI again.
 . /opt/spruce/scripts/env.sh
 
-until select_input; do
-	printf '\033[2J\033[H\n\n  Connect a controller or keyboard...\n' > /dev/tty1
-	sleep 2
-done
-/opt/spruce/scripts/console-blank.sh
+select_input
 
 fast_fails=0
 while :; do

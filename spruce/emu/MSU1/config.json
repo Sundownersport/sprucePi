@@ -1,0 +1,28 @@
+{
+  "label": "MSU1",
+  "icon": "msu1.png",
+  "iconsel": "msu1_sel.png",
+  "themecolor": "FF0000",
+  "launch": "../../spruce/scripts/emu/standard_launch.sh",
+  "extlist": "sfc|smc|zip|7z|fig|bs|st",
+  "launchlist": [],
+  "menuOptions": {
+    "Governor": {
+      "display": "CPU Mode",
+      "options": [
+        "Smart",
+        "Performance",
+        "Overclock"
+      ],
+      "selected": "Smart",
+      "overrides": {}
+    }
+  },
+  "sortOrder": 3600,
+  "brand": "Nintendo",
+  "type": "homeconsole",
+  "releaseYear": 1994,
+  "default_emulator": "snes9x",
+  "scaling_min_freq": 1008000,
+  "alternativeFolderNames": ["msu","msu1","MSU"]
+}

@@ -1,0 +1,58 @@
+{
+  "label": "Game Tank",
+  "icon": "gametank.png",
+  "iconsel": "gametank_sel.png",
+  "themecolor": "29489f",
+  "launch": "../../spruce/scripts/emu/standard_launch.sh",
+  "extlist": "gtr|zip|7z",
+  "launchlist": [],
+  "menuOptions": {
+    "Governor": {
+      "display": "CPU Mode",
+      "options": [
+        "Smart",
+        "Performance",
+        "Overclock"
+      ],
+      "selected": "Smart",
+      "overrides": {}
+    },
+    "Emulator_A30": {
+      "display": "Emulator",
+      "devices": [
+        "MIYOO_A30"
+      ],
+      "options": [
+        "gametank",
+        "gametank-standalone"
+      ],
+      "selected": "gametank",
+      "overrides": {}
+    },
+    "Emulator_64": {
+      "display": "Emulator",
+      "devices": [
+        "MIYOO_FLIP",
+        "TRIMUI_A133P",
+        "TRIMUI_SMART_PRO_S",
+        "GKD_PIXEL2",
+        "ANBERNIC_RGXX",
+        "DARKMOSS",
+        "MAGICX_A133P"
+      ],
+      "options": [
+        "gametank",
+        "gametank-standalone"
+      ],
+      "selected": "gametank",
+      "overrides": {}
+    }
+  },
+  "sortOrder": 2650,
+  "brand": "other",
+  "type": "fantasy",
+  "releaseYear": 2023,
+  "default_emulator": "gametank",
+  "scaling_min_freq": 1008000,
+  "alternativeFolderNames": ["gametank","libgametank","gt"]
+}

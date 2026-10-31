@@ -1,0 +1,37 @@
+{
+  "label": "FDS",
+  "icon": "fds.png",
+  "iconsel": "fds_sel.png",
+  "themecolor": "",
+  "launch": "../../spruce/scripts/emu/standard_launch.sh",
+  "extlist": "zip|7z|fds|nes|unif|unf",
+  "launchlist": [],
+  "menuOptions": {
+    "Governor": {
+      "display": "CPU Mode",
+      "options": [
+        "Smart",
+        "Performance",
+        "Overclock"
+      ],
+      "selected": "Smart",
+      "overrides": {}
+    },
+    "Emulator": {
+      "display": "Retroarch Core",
+      "options": [
+        "fceumm",
+        "nestopia"
+      ],
+      "selected": "fceumm",
+      "overrides": {}
+    }
+  },
+  "sortOrder": 2400,
+  "brand": "Nintendo",
+  "type": "homeconsole",
+  "releaseYear": 1986,
+  "default_emulator": "fceumm",
+  "scaling_min_freq": 408000,
+  "alternativeFolderNames": ["fds","disksystem","famicomdisk","DISKSYSTEM"]
+}

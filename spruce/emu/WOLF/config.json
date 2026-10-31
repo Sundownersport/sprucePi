@@ -1,0 +1,28 @@
+{
+  "label": "Wolf3D",
+  "icon": "wolf.png",
+  "iconsel": "wolf_sel.png",
+  "themecolor": "eb0706",
+  "launch": "../../spruce/scripts/emu/standard_launch.sh",
+  "extlist": "ecwolf|exe",
+  "launchlist": [],
+  "menuOptions": {
+    "Governor": {
+      "display": "CPU Mode",
+      "options": [
+        "Smart",
+        "Performance",
+        "Overclock"
+      ],
+      "selected": "Smart",
+      "overrides": {}
+    }
+  },
+  "sortOrder": 7500,
+  "brand": "Other",
+  "type": "pc",
+  "releaseYear": 1992,
+  "default_emulator": "ecwolf",
+  "scaling_min_freq": 480000,
+  "alternativeFolderNames": ["wolf","wolfenstein","wolf3d","ecwolf","WOLFENSTEIN","WOLF3D","ECWOLF","WOLFENSTEIN3D","wolfenstein3d"]
+}

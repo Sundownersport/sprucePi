@@ -1,0 +1,29 @@
+{
+  "label": "EasyRPG",
+  "icon": "easyrpg.png",
+  "iconsel": "easyrpg_sel.png",
+  "themecolor": "FFFF88",
+  "launch": "../../spruce/scripts/emu/standard_launch.sh",
+  "subfolder_launch_file": "RPG_RT.ldb",
+  "extlist": "zip|ldb|easyrpg",
+  "launchlist": [],
+  "menuOptions": {
+    "Governor": {
+      "display": "CPU Mode",
+      "options": [
+        "Smart",
+        "Performance",
+        "Overclock"
+      ],
+      "selected": "Smart",
+      "overrides": {}
+    }
+  },
+  "sortOrder": 2100,
+  "brand": "modernengine",
+  "type": "fantasy",
+  "releaseYear": 2008,
+  "default_emulator": "easyrpg",
+  "scaling_min_freq": 480000,
+  "alternativeFolderNames": ["easyrpg"]
+}

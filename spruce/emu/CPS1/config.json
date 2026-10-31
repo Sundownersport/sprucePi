@@ -1,0 +1,38 @@
+{
+  "label": "CPS1",
+  "icon": "cps1.png",
+  "iconsel": "cps1_sel.png",
+  "themecolor": "0000FF",
+  "launch": "../../spruce/scripts/emu/standard_launch.sh",
+  "extlist": "zip|7z|cue",
+  "launchlist": [],
+  "menuOptions": {
+    "Governor": {
+      "display": "CPU Mode",
+      "options": [
+        "Smart",
+        "Performance",
+        "Overclock"
+      ],
+      "selected": "Smart",
+      "overrides": {}
+    },
+    "Emulator": {
+      "display": "Retroarch Core",
+      "options": [
+        "fbalpha2012",
+        "fbneo"
+      ],
+      "selected": "fbalpha2012",
+      "overrides": {}
+    }
+  },
+  "sortOrder": 1500,
+  "brand": "Capcom",
+  "type": "arcade",
+  "releaseYear": 1988,
+  "default_emulator": "fbalpha2012",
+  "scaling_min_freq": 816000,
+  "alternativeFolderNames": ["cps1","capcomcps1"],
+  "ignoreList": ["neogeo.zip","neocdz.zip","neocd.zip"]
+}

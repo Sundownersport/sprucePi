@@ -1,0 +1,28 @@
+{
+  "label": "Odyssey2",
+  "icon": "ody.png",
+  "iconsel": "ody_sel.png",
+  "themecolor": "c5b9a4",
+  "launch": "../../spruce/scripts/emu/standard_launch.sh",
+  "extlist": "bin|zip|7z",
+  "launchlist": [],
+  "menuOptions": {
+    "Governor": {
+      "display": "CPU Mode",
+      "options": [
+        "Smart",
+        "Performance",
+        "Overclock"
+      ],
+      "selected": "Smart",
+      "overrides": {}
+    }
+  },
+  "sortOrder": 4600,
+  "brand": "Magnavox",
+  "type": "homeconsole",
+  "releaseYear": 1972,
+  "default_emulator": "o2em",
+  "scaling_min_freq": 480000,
+  "alternativeFolderNames": ["odyssey2","odyssey","ODYSSEY2"]
+}

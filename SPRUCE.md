@@ -11,11 +11,11 @@ branch plus new files only, so upstream updates merge cleanly.
 
 | Where | What |
 |---|---|
-| `spruce/` -> `/opt/spruce` (ext4) | `pyui` (subtree of spruceOS `App/PyUI`), `apps`, `scripts`, `config`, `themes` |
+| `spruce/` -> `/opt/spruce` (ext4) | `pyui` (subtree of spruceOS `App/PyUI`), `apps`, `emu` (system configs), `retroarch`, `scripts`, `config`, `themes` |
 | `/mnt/SDCARD` (exFAT, made on first boot) | `Roms`, `BIOS`, `Saves` |
 | `stage-spruce/` | The pi-gen stage: boot logo, spruce, desktop |
 
-PyUI hardcodes `/mnt/SDCARD/App` and `/mnt/SDCARD/spruce`, so `mount-data.sh` binds the
+PyUI hardcodes `/mnt/SDCARD/App`, `/spruce` and `/Emu`, so `mount-data.sh` binds the
 `/opt/spruce` copies there. Leave `spruce/pyui` unedited where possible.
 
 ## Updating PyUI

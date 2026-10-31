@@ -1,0 +1,37 @@
+{
+  "label": "NGP",
+  "icon": "ngp.png",
+  "iconsel": "ngp_sel.png",
+  "themecolor": "FFFFFF",
+  "launch": "../../spruce/scripts/emu/standard_launch.sh",
+  "extlist": "ngp|ngc|zip|7z",
+  "launchlist": [],
+  "menuOptions": {
+    "Governor": {
+      "display": "CPU Mode",
+      "options": [
+        "Smart",
+        "Performance",
+        "Overclock"
+      ],
+      "selected": "Smart",
+      "overrides": {}
+    },
+    "Emulator": {
+      "display": "Retroarch Core",
+      "options": [
+        "mednafen_ngp",
+        "race"
+      ],
+      "selected": "mednafen_ngp",
+      "overrides": {}
+    }
+  },
+  "sortOrder": 4400,
+  "brand": "SNK",
+  "type": "handheld",
+  "releaseYear": 1998,
+  "default_emulator": "mednafen_ngp",
+  "scaling_min_freq": 408000,
+  "alternativeFolderNames": ["ngp","neogeopocket","NEOGEOPOCKET"]
+}

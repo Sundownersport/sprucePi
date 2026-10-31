@@ -1,0 +1,28 @@
+{
+  "label": "VideoPac",
+  "icon": "vdp.png",
+  "iconsel": "vdp_sel.png",
+  "themecolor": "ff1f1f",
+  "launch": "../../spruce/scripts/emu/standard_launch.sh",
+  "extlist": "bin|zip|7z",
+  "launchlist": [],
+  "menuOptions": {
+    "Governor": {
+      "display": "CPU Mode",
+      "options": [
+        "Smart",
+        "Performance",
+        "Overclock"
+      ],
+      "selected": "Smart",
+      "overrides": {}
+    }
+  },
+  "sortOrder": 7100,
+  "brand": "Phillips",
+  "type": "homeconsole",
+  "releaseYear": 1983,
+  "default_emulator": "o2em",
+  "scaling_min_freq": 408000,
+  "alternativeFolderNames": ["videopac"]
+}

@@ -1,6 +1,8 @@
 #!/bin/sh
 export SCREEN_WIDTH=1280 SCREEN_HEIGHT=720 SCREEN_ROTATION=0
-export PYUI_DEVICE_NAMES=SPRUCEPI
+# DARKMOSS: the system configs already list it, and it is also 64-bit Debian trixie.
+export PYUI_DEVICE_NAMES=SPRUCEPI,DARKMOSS
+export AUDIO_PLAYER=SDL2
 export POWER_OFF_CMD=poweroff REBOOT_CMD=reboot
 export CONTROLLER_EVENT_FORMAT=llHHi
 

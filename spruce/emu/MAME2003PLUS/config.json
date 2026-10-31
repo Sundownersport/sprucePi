@@ -1,0 +1,29 @@
+{
+  "label": "MAME 03+",
+  "icon": "mame.png",
+  "iconsel": "mame_sel.png",
+  "themecolor": "00CCFF",
+  "launch": "../../spruce/scripts/emu/standard_launch.sh",
+  "extlist": "zip",
+  "launchlist": [],
+  "menuOptions": {
+    "Governor": {
+      "display": "CPU Mode",
+      "options": [
+        "Smart",
+        "Performance",
+        "Overclock"
+      ],
+      "selected": "Smart",
+      "overrides": {}
+    }
+  },
+  "sortOrder": 3200,
+  "brand": "modernengine",
+  "type": "arcade",
+  "releaseYear": 2003,
+  "default_emulator": "mame2003_plus",
+  "scaling_min_freq": 816000,
+  "alternativeFolderNames": ["mame2003plus","MAME","mame"],
+  "ignoreList": ["neogeo.zip","neocdz.zip","neocd.zip"]
+}

@@ -1,0 +1,28 @@
+{
+  "label": "Atari ST",
+  "icon": "atarist.png",
+  "iconsel": "atarist_sel.png",
+  "themecolor": "4fa1d5",
+  "launch": "../../spruce/scripts/emu/standard_launch.sh",
+  "extlist": "st|msa|stx|dim|ipf|zip|7z",
+  "launchlist": [],
+  "menuOptions": {
+    "Governor": {
+      "display": "CPU Mode",
+      "options": [
+        "Smart",
+        "Performance",
+        "Overclock"
+      ],
+      "selected": "Smart",
+      "overrides": {}
+    }
+  },
+  "sortOrder": 1000,
+  "brand": "Atari",
+  "type": "homeconsole",
+  "releaseYear": 1985,
+  "default_emulator": "hatari",
+  "scaling_min_freq": 480000,
+  "alternativeFolderNames": ["atarist", "Atari ST", "st"]
+}

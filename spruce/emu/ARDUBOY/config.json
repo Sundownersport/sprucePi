@@ -1,0 +1,40 @@
+{
+  "label": "Arduboy",
+  "icon": "arduboy.png",
+  "iconsel": "arduboy_sel.png",
+  "themecolor": "8b2db4",
+  "launch": "../../spruce/scripts/emu/standard_launch.sh",
+  "extlist": "hex|zip",
+  "launchlist": [],
+  "menuOptions": {
+    "Governor": {
+      "display": "CPU Mode",
+      "options": [
+        "Smart",
+        "Performance",
+        "Overclock"
+      ],
+      "selected": "Smart",
+      "overrides": {}
+    },
+    "Emulator": {
+      "display": "Retroarch Core",
+      "options": [
+        "ardens",
+        "arduous"
+      ],
+      "selected": "ardens",
+      "overrides": {}
+    }
+  },
+  "sortOrder": 400,
+  "brand": "other",
+  "type": "handheld",
+  "releaseYear": 2014,
+  "default_emulator": "ardens",
+  "scaling_min_freq": 816000,
+  "alternativeFolderNames": [
+    "arduboy",
+    "Arduboy"
+  ]
+}

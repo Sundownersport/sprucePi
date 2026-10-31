@@ -1,0 +1,97 @@
+{
+  "label": "Arcade",
+  "icon": "arcade.png",
+  "iconsel": "arcade_sel.png",
+  "themecolor": "CD6155",
+  "launch": "../../spruce/scripts/emu/standard_launch.sh",
+  "extlist": "zip",
+  "launchlist": [],
+  "menuOptions": {
+    "Governor": {
+      "display": "CPU Mode",
+      "options": [
+        "Smart",
+        "Performance",
+        "Overclock"
+      ],
+      "selected": "Smart",
+      "overrides": {}
+    },
+    "Emulator": {
+      "display": "Retroarch Core",
+      "options": [
+        "fbneo",
+        "mame2003_plus",
+        "fbalpha2012"
+      ],
+      "selected": "fbneo",
+      "overrides": {},
+      "devices": [
+        "MIYOO_A30",
+        "ANBERNIC_RGXX",
+        "DARKMOSS"
+      ]
+    },
+    "raBuild": {
+      "display": "RA Build",
+      "devices": [
+        "MIYOO_FLIP",
+        "ANBERNIC_RGXX",
+        "DARKMOSS"
+      ],
+      "options": [
+        "64-bit",
+        "32-bit"
+      ],
+      "selected": "64-bit",
+      "overrides": {}
+    },
+    "Emulator_64": {
+      "display": "Emulator",
+      "options": [
+        "fbneo",
+        "mame2003_plus",
+        "fbalpha2012",
+        "advmame-standalone"
+      ],
+      "selected": "fbneo",
+      "overrides": {},
+      "devices": [
+        "MIYOO_FLIP",
+        "GKD_PIXEL2",
+        "TRIMUI_A133P",
+        "TRIMUI_SMART_PRO_S",
+        "MAGICX_A133P"
+      ]
+    },
+    "Emulator_MiyooMini": {
+      "display": "Retroarch Core",
+      "options": [
+        "fbneo",
+        "mame2003_plus",
+        "km_mame2003_xtreme",
+        "fbalpha2012"
+      ],
+      "selected": "fbneo",
+      "overrides": {},
+      "devices": [
+        "MIYOO_MINI_FAMILY"
+      ]
+    }
+  },
+  "sortOrder": 300,
+  "brand": "Arcade",
+  "type": "arcade",
+  "releaseYear": 1971,
+  "default_emulator": "fbneo",
+  "scaling_min_freq": 816000,
+  "alternativeFolderNames": [
+    "arcade",
+    "Arcade"
+  ],
+  "ignoreList": [
+    "neogeo.zip",
+    "neocdz.zip",
+    "neocd.zip"
+  ]
+}

@@ -1,0 +1,38 @@
+{
+  "label": "CPS3",
+  "icon": "cps3.png",
+  "iconsel": "cps3_sel.png",
+  "themecolor": "FF4400",
+  "launch": "../../spruce/scripts/emu/standard_launch.sh",
+  "extlist": "zip|7z|cue",
+  "launchlist": [],
+  "menuOptions": {
+    "Governor": {
+      "display": "CPU Mode",
+      "options": [
+        "Smart",
+        "Performance",
+        "Overclock"
+      ],
+      "selected": "Smart",
+      "overrides": {}
+    },
+    "Emulator": {
+      "display": "Retroarch Core",
+      "options": [
+        "fbalpha2012",
+        "fbneo"
+      ],
+      "selected": "fbalpha2012",
+      "overrides": {}
+    }
+  },
+  "sortOrder": 1700,
+  "brand": "Capcom",
+  "type": "arcade",
+  "releaseYear": 1996,
+  "default_emulator": "fbalpha2012",
+  "scaling_min_freq": 1008000,
+  "alternativeFolderNames": ["cps3","capcomcps3"],
+  "ignoreList": ["neogeo.zip","neocdz.zip","neocd.zip"]
+}

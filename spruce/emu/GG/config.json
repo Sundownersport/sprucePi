@@ -1,0 +1,38 @@
+{
+  "label": "Game Gear",
+  "icon": "gg.png",
+  "iconsel": "gg_sel.png",
+  "themecolor": "FFFFFF",
+  "launch": "../../spruce/scripts/emu/standard_launch.sh",
+  "extlist": "bin|gg|zip|7z",
+  "launchlist": [],
+  "menuOptions": {
+    "Governor": {
+      "display": "CPU Mode",
+      "options": [
+        "Smart",
+        "Performance",
+        "Overclock"
+      ],
+      "selected": "Smart",
+      "overrides": {}
+    },
+    "Emulator": {
+      "display": "Retroarch Core",
+      "options": [
+        "genesis_plus_gx",
+        "picodrive",
+        "gearsystem"
+      ],
+      "selected": "genesis_plus_gx",
+      "overrides": {}
+    }
+  },
+  "sortOrder": 2600,
+  "brand": "Sega",
+  "type": "handheld",
+  "releaseYear": 1990,
+  "default_emulator": "genesis_plus_gx",
+  "scaling_min_freq": 408000,
+  "alternativeFolderNames": ["GAMEGEAR","gamegear","gg"]
+}

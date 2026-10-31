@@ -1,0 +1,34 @@
+{
+  "label": "FBNEO",
+  "icon": "fbneo.png",
+  "iconsel": "fbneo_sel.png",
+  "themecolor": "EC7063",
+  "launch": "../../spruce/scripts/emu/standard_launch.sh",
+  "extlist": "zip",
+  "launchlist": [
+    {
+      "name": "Generate namelist",
+      "launch": "/mnt/SDCARD/Emu/FBNEO/gamelist.sh"
+    }
+  ],
+  "menuOptions": {
+    "Governor": {
+      "display": "CPU Mode",
+      "options": [
+        "Smart",
+        "Performance",
+        "Overclock"
+      ],
+      "selected": "Smart",
+      "overrides": {}
+    }
+  },
+  "sortOrder": 2300,
+  "brand": "modernengine",
+  "type": "arcade",
+  "releaseYear": 2003,
+  "default_emulator": "fbneo",
+  "scaling_min_freq": 816000,
+  "alternativeFolderNames": ["fbneo","finalburnneo","FINALBURNNEO"],
+  "ignoreList": ["neogeo.zip","neocdz.zip","neocd.zip"]
+}

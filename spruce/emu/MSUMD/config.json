@@ -1,0 +1,28 @@
+{
+  "label": "MSUMD",
+  "icon": "msumd.png",
+  "iconsel": "msumd_sel.png",
+  "themecolor": "",
+  "launch": "../../spruce/scripts/emu/standard_launch.sh",
+  "extlist": "zip|7z|gen|smd|md|32x|bin|iso|sms|68k|chd",
+  "launchlist": [],
+  "menuOptions": {
+    "Governor": {
+      "display": "CPU Mode",
+      "options": [
+        "Smart",
+        "Performance",
+        "Overclock"
+      ],
+      "selected": "Smart",
+      "overrides": {}
+    }
+  },
+  "sortOrder": 3700,
+  "brand": "Sega",
+  "type": "homeconsole",
+  "releaseYear": 1991,
+  "default_emulator": "genesis_plus_gx",
+  "scaling_min_freq": 816000,
+  "alternativeFolderNames": ["msumd"]
+}

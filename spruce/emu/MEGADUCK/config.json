@@ -1,0 +1,28 @@
+{
+  "label": "Mega Duck",
+  "icon": "megaduck.png",
+  "iconsel": "megaduck_sel.png",
+  "themecolor": "3cc7c7",
+  "launch": "../../spruce/scripts/emu/standard_launch.sh",
+  "extlist": "bin|zip|7z",
+  "launchlist": [],
+  "menuOptions": {
+    "Governor": {
+      "display": "CPU Mode",
+      "options": [
+        "Smart",
+        "Performance",
+        "Overclock"
+      ],
+      "selected": "Smart",
+      "overrides": {}
+    }
+  },
+  "sortOrder": 3400,
+  "brand": "Welback",
+  "type": "handheld",
+  "releaseYear": 1993,
+  "default_emulator": "sameduck",
+  "scaling_min_freq": 1008000,
+  "alternativeFolderNames": ["megaduck","COUGARBOY","cougarboy","sameduck"]
+}
