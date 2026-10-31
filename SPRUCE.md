@@ -32,5 +32,10 @@ git subtree pull -P spruce/pyui /path/to/spruceOS pyui-only
 `emulators/<name>/` holds a `deps` list, a `build.sh` and the spruce patches for one emulator. The
 "Build emulators" workflow builds them natively on arm64 and posts them to the `beta-emulators`
 release, which the image build unpacks into `/opt/spruce/emulators`. To build one locally:
-`emulators/build.sh retroarch`. RetroArch's cores still come from spruceOS, at the commit in
-`stage-spruce/01-spruce/02-run.sh`.
+`emulators/build.sh retroarch`.
+
+## Cores
+
+`cores/list.txt` names the cores built by the "Build cores" workflow, with libretro-super or a recipe in
+`cores/custom`, and posted to the `beta-cores` release. The image starts from spruceOS's cores, at the commit in
+`stage-spruce/01-spruce/02-run.sh`, and replaces each one that has its own build.

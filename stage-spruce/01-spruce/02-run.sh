@@ -26,6 +26,20 @@ find /tmp/spruceOS/RetroArch/.retroarch/cores64 -name '*.so' -size +1k \
 cp -r /tmp/spruceOS/RetroArch/.retroarch/assets /tmp/spruceOS/RetroArch/.retroarch/info "${ROOTFS_DIR}/opt/spruce/retroarch/"
 rm -rf /tmp/spruceOS
 
+# Our own builds replace spruce's where there is one.
+CORES="https://github.com/Sundownersport/sprucePi/releases/download/beta-cores"
+while read -r core; do
+	rm -rf /tmp/core
+	mkdir /tmp/core
+	if curl -fsSL "$CORES/$core.tar.gz" | tar -xz -C /tmp/core; then
+		cp /tmp/core/*_libretro.so "${ROOTFS_DIR}/opt/spruce/retroarch/cores/"
+		cp /tmp/core/*.info "${ROOTFS_DIR}/opt/spruce/retroarch/info/" 2>/dev/null || true
+	else
+		echo "WARNING: no build of $core in beta-cores, keeping spruce's"
+	fi
+done < "${BASE_DIR}/cores/list.txt"
+rm -rf /tmp/core
+
 rm -rf /tmp/autoconfig
 git clone --depth 1 https://github.com/libretro/retroarch-joypad-autoconfig.git /tmp/autoconfig
 install -d "${ROOTFS_DIR}/opt/spruce/retroarch/autoconfig"

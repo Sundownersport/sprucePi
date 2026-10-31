@@ -1,0 +1,59 @@
+name: Build cores
+
+on:
+  workflow_dispatch:
+    inputs:
+      core:
+        description: "One core, or all"
+        default: all
+
+permissions:
+  contents: write
+
+env:
+  TAG: beta-cores
+
+jobs:
+  prepare:
+    runs-on: ubuntu-24.04-arm
+    outputs:
+      list: ${{ steps.list.outputs.list }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: list
+        env:
+          CORE: ${{ inputs.core }}
+        run: |
+          if [ "$CORE" = all ]; then
+            list=$(jq -Rsc 'split("\n") | map(select(length > 0))' cores/list.txt)
+          else
+            list=$(jq -nc --arg c "$CORE" '[$c]')
+          fi
+          echo "list=$list" >> "$GITHUB_OUTPUT"
+      - name: Ensure the release exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 ||
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+              --title "Core builds" --notes "Native arm64 libretro core builds used by the image." --prerelease
+
+  build:
+    needs: prepare
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        core: ${{ fromJson(needs.prepare.outputs.list) }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: ./cores/build.sh "${{ matrix.core }}" "output/${{ matrix.core }}"
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NAME: ${{ matrix.core }}
+        run: |
+          tar -czf "$NAME.tar.gz" -C "output/$NAME" .
+          gh release upload "$TAG" "$NAME.tar.gz" --repo "$GITHUB_REPOSITORY" --clobber
