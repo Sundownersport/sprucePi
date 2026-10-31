@@ -1,0 +1,13 @@
+[Unit]
+Description=Create the sprucePi data partition
+ConditionPathExists=!/var/lib/sprucepi-firstboot-done
+DefaultDependencies=no
+After=local-fs.target
+Before=spruce-launch.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/spruce/scripts/firstboot.sh
+
+[Install]
+WantedBy=multi-user.target

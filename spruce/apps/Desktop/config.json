@@ -1,0 +1,7 @@
+{
+  "label": "Desktop",
+  "icon": "desktop.png",
+  "launch": "launch.sh",
+  "description": "Switch to the LXQt desktop",
+  "hideInSimpleMode": false
+}

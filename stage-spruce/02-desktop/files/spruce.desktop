@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=spruce
+Comment=Switch to PyUI
+Icon=/opt/spruce/apps/Desktop/desktop.png
+Exec=systemctl start --no-block spruce-launch.service
+Terminal=false
+Categories=Game;

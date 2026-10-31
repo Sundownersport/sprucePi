@@ -1,0 +1,20 @@
+[Unit]
+Description=spruce (PyUI)
+After=multi-user.target sprucepi-firstboot.service
+Conflicts=lightdm.service
+
+[Service]
+Type=idle
+ExecStartPre=/opt/spruce/scripts/mount-data.sh
+ExecStart=/opt/spruce/scripts/session.sh
+Restart=on-failure
+RestartSec=3
+StandardInput=tty
+StandardOutput=journal
+StandardError=journal
+TTYPath=/dev/tty1
+TTYReset=yes
+TTYVHangup=yes
+
+[Install]
+WantedBy=multi-user.target
