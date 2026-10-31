@@ -25,7 +25,8 @@
       "options": [
         "mupen64plus-standalone",
         "km_ludicrousn64_2k22_xtreme_amped",
-        "mupen64plus_next"
+        "mupen64plus_next",
+        "armn64"
       ],
       "selected": "mupen64plus-standalone",
       "overrides": {}

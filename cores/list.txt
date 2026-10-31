@@ -4,6 +4,7 @@ a5200
 ardens
 arduous
 armgba
+armn64
 atari800
 bk
 bluemsx
