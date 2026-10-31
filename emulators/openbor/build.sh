@@ -1,7 +1,9 @@
-OPENBOR_VERSION="${OPENBOR_VERSION:-v7533}"
+# Master: the v7533 tag predates upstream's CMake build.
+OPENBOR_VERSION="${OPENBOR_VERSION:-65a7f0b41aee87fe4084e538634b4ed73236f871}"
 
-git clone --branch "$OPENBOR_VERSION" https://github.com/DCurrent/openbor.git
+git clone https://github.com/DCurrent/openbor.git
 cd openbor
+git checkout "$OPENBOR_VERSION"
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_LINUX=ON -DTARGET_ARCH=ARM64
 cmake --build build --parallel
 
