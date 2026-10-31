@@ -1,13 +1,16 @@
 #!/bin/sh -e
-# Grow the system partition to 16 GB (half the card if it is under 24 GB) and
-# give the rest to an exFAT data partition.
+# Grow the system partition to 16 GB and give the rest to an exFAT data partition.
 root_part=$(findmnt -no SOURCE /)
 disk=/dev/$(lsblk -no PKNAME "$root_part")
 disk_gib=$(($(blockdev --getsize64 "$disk") / 1073741824))
-root_gib=16
-[ "$disk_gib" -ge 24 ] || root_gib=$((disk_gib / 2))
 
-echo ",${root_gib}G" | sfdisk --force --no-reread --no-tell-kernel -N 2 "$disk"
+if [ "$disk_gib" -lt 24 ]; then
+	plymouth quit 2>/dev/null || true
+	printf '\033[2J\033[H\n\n  sprucePi needs a 32 GB or larger card.\n' > /dev/tty1
+	exec sleep infinity
+fi
+
+echo ",16G" | sfdisk --force --no-reread --no-tell-kernel -N 2 "$disk"
 partx -u -n 2 "$disk"
 resize2fs "$root_part"
 
