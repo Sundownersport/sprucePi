@@ -3,6 +3,9 @@ name: Build image
 on:
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-24.04-arm
@@ -12,12 +15,35 @@ jobs:
         run: touch stage2/SKIP_IMAGES
       - name: Build
         run: ./build-docker.sh -c sprucepi.config
-      - uses: actions/upload-artifact@v4
-        with:
-          name: sprucePi
-          path: deploy/*.img.xz
-          compression-level: 0
-          if-no-files-found: error
+      - name: Publish the beta
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: beta-${{ github.ref_name }}
+        run: |
+          set -e
+          mkdir out
+          mv deploy/*.img.xz out/
+          cd out
+          # GitHub caps release assets at 2 GiB.
+          for f in *.img.xz; do
+            if [ "$(stat -c %s "$f")" -gt 2000000000 ]; then
+              split -b 1900M -d "$f" "$f.part"
+              rm "$f"
+            fi
+          done
+          sha256sum * > SHA256SUMS
+          cat > ../notes.md <<NOTES
+          Beta build of \`${GITHUB_SHA::7}\` from \`${GITHUB_REF_NAME}\`. Not for general use.
+
+          If the image is in \`.part\` files, join them first: \`cat *.img.xz.part* > sprucePi.img.xz\`
+          NOTES
+          sed -i 's/^ *//' ../notes.md
+          gh release delete "$TAG" --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes 2>/dev/null || true
+          gh release create "$TAG" * --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "Beta Build (${GITHUB_REF_NAME})" \
+            --notes-file ../notes.md \
+            --prerelease
       - uses: actions/upload-artifact@v4
         if: always()
         with:

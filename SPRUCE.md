@@ -4,7 +4,7 @@ Raspberry Pi OS Lite (64-bit) with PyUI as its frontend and an LXQt desktop, bui
 [pi-gen](https://github.com/RPi-Distro/pi-gen). The `spruce` branch is upstream's `arm64`
 branch plus new files only, so upstream updates merge cleanly.
 
-- **Build:** run the "Build image" workflow. The image is the `sprucePi` artifact.
+- **Build:** run the "Build image" workflow. It replaces the `beta-spruce` prerelease.
 - **Login:** `spruce` / `happygaming`, with SSH on.
 
 ## Layout
